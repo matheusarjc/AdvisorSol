@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import {
@@ -21,30 +21,18 @@ import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
 import { ANBIMACurves } from "../charts/ANBIMACurves";
-import { fetchDebentures, fetchCreditCurves } from "@/services/anbima";
-import { fetchLatestSGSValue } from "@/services/sgs";
+import { fetchDebentures, fetchCreditCurves, fetchDiCurve } from "@/services/anbima";
+import { fetchLatestSGSValue, fetchSGSSeries } from "@/services/sgs";
 import { fetchSidraIpcaSubitems } from "@/services/sidra";
 import { fetchTesouroTitulos } from "@/services/tesouro";
 import { useRealtime } from "@/components/providers/realtime-provider";
 
-const yieldCurveData = [
-  { maturity: "1M", rate: 11.25, yesterday: 11.3 },
-  { maturity: "3M", rate: 11.35, yesterday: 11.4 },
-  { maturity: "6M", rate: 11.45, yesterday: 11.5 },
-  { maturity: "1A", rate: 11.65, yesterday: 11.7 },
-  { maturity: "2A", rate: 11.85, yesterday: 11.9 },
-  { maturity: "5A", rate: 12.15, yesterday: 12.2 },
-  { maturity: "10A", rate: 12.45, yesterday: 12.5 },
-];
+// será preenchido por dados dinâmicos (ANBIMA)
+const initialYieldCurveData: Array<{ maturity: string; rate: number; yesterday?: number }> = [];
 
-const historicalRates = [
-  { date: "Jan", selic: 13.75, ipca: 5.79, cdi: 13.65 },
-  { date: "Fev", selic: 13.25, ipca: 5.6, cdi: 13.15 },
-  { date: "Mar", selic: 12.75, ipca: 4.65, cdi: 12.65 },
-  { date: "Abr", selic: 12.25, ipca: 4.18, cdi: 12.15 },
-  { date: "Mai", selic: 11.75, ipca: 4.5, cdi: 11.65 },
-  { date: "Jun", selic: 11.25, ipca: 4.23, cdi: 11.15 },
-];
+// será preenchido por dados dinâmicos (SGS)
+const initialHistoricalRates: Array<{ date: string; selic: number; ipca: number; cdi: number }> =
+  [];
 
 const debenturesData = [
   {
@@ -91,14 +79,26 @@ const debenturesData = [
   },
 ];
 
-const scenarioData = [
-  { scenario: "Base", selic: 11.25, ipca: 4.2, yield: 12.1 },
-  { scenario: "Alta", selic: 13.0, ipca: 5.5, yield: 13.8 },
-  { scenario: "Baixa", selic: 9.5, ipca: 3.0, yield: 10.2 },
-];
+// Cenários dinâmicos baseados nos últimos valores de Selic/IPCA
+function buildScenarios(currentSelic?: number | null, currentIpca?: number | null) {
+  const s = currentSelic ?? 11.25;
+  const i = currentIpca ?? 4.2;
+  return [
+    { scenario: "Base", selic: s, ipca: i, yield: Math.max(s - 0.5, 0) + 0.85 },
+    { scenario: "Alta", selic: s + 1.75, ipca: i + 1.2, yield: Math.max(s + 1.75 - 0.5, 0) + 1.1 },
+    {
+      scenario: "Baixa",
+      selic: Math.max(s - 1.75, 0),
+      ipca: Math.max(i - 1.2, 0),
+      yield: Math.max(s - 1.75 - 0.5, 0) + 0.6,
+    },
+  ];
+}
 
 export function RendaFixaBrasil() {
   const { lastUpdate: realtimeData, connected: realtimeLoading } = useRealtime();
+  const [yieldCurveData, setYieldCurveData] = useState(initialYieldCurveData);
+  const [historicalRates, setHistoricalRates] = useState(initialHistoricalRates);
   const [selectedScenario, setSelectedScenario] = useState("Base");
   const [activeTab, setActiveTab] = useState("overview");
   const [simulatorValues, setSimulatorValues] = useState({
@@ -116,6 +116,34 @@ export function RendaFixaBrasil() {
   const [ipca, setIpca] = useState<number | null>(null);
   const [ipcaSubitems, setIpcaSubitems] = useState<any[] | null>(null);
   const [tdTitulos, setTdTitulos] = useState<any[] | null>(null);
+  const realRate = useMemo(
+    () => (selic != null && ipca != null ? selic - ipca : null),
+    [selic, ipca]
+  );
+  const scenarios = useMemo(() => buildScenarios(selic, ipca), [selic, ipca]);
+
+  // Inclinação 10Y-2Y baseada em títulos IPCA do Tesouro
+  const slope10y2y = useMemo(() => {
+    if (!tdTitulos?.length) return null;
+    const ipcaBonds = tdTitulos.filter((t) => t.indexador === "IPCA");
+    if (!ipcaBonds.length) return null;
+    const yearsToMaturity = (venc: string) => {
+      const d = new Date(venc);
+      const now = new Date();
+      return (d.getTime() - now.getTime()) / (1000 * 60 * 60 * 24 * 365.25);
+    };
+    const withYears = ipcaBonds.map((t) => ({ ...t, years: yearsToMaturity(t.vencimento) }));
+    // Encontrar próximos de ~2 anos e ~10 anos
+    let two = null as any;
+    let ten = null as any;
+    for (const t of withYears) {
+      if (!two || Math.abs(t.years - 2) < Math.abs(two.years - 2)) two = t;
+      if (!ten || Math.abs(t.years - 10) < Math.abs(ten.years - 10)) ten = t;
+    }
+    if (!two || !ten) return null;
+    const diffBps = Math.round((ten.taxaCompra - two.taxaCompra) * 100);
+    return diffBps;
+  }, [tdTitulos]);
 
   useEffect(() => {
     const loadData = async () => {
@@ -137,6 +165,63 @@ export function RendaFixaBrasil() {
 
         const titulos = await fetchTesouroTitulos();
         setTdTitulos(titulos.slice(0, 5));
+
+        // Curva DI (ANBIMA)
+        try {
+          const di = await fetchDiCurve();
+          // Esperado: [{ maturity: '1M'|'3M'|'6M'|'1A'|'2A'|'5A'|'10A', rate: number, yesterday?: number }]
+          if (Array.isArray(di) && di.length) {
+            setYieldCurveData(
+              di.map((p: any) => ({
+                maturity: String(p.maturity ?? p.tenor ?? p.vencimento ?? ""),
+                rate: Number(p.rate ?? p.taxa ?? p.valor ?? 0),
+                yesterday: p.yesterday != null ? Number(p.yesterday) : undefined,
+              }))
+            );
+          }
+        } catch {}
+
+        // Histórico (últimos 6 meses) de Selic/IPCA/CDI via SGS
+        try {
+          const now = new Date();
+          const past = new Date(now);
+          past.setMonth(now.getMonth() - 6);
+          const fmt = (d: Date) =>
+            `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(
+              2,
+              "0"
+            )}/${d.getFullYear()}`;
+          const sSelic = await fetchSGSSeries(11, fmt(past), fmt(now));
+          const sIpca = await fetchSGSSeries(433, fmt(past), fmt(now));
+          const sCdi = await fetchSGSSeries(4389, fmt(past), fmt(now));
+
+          // Agrupar por mês para compor pontos mensais
+          const byMonth = new Map<string, { selic?: number; ipca?: number; cdi?: number }>();
+          const parse = (valor: string) => parseFloat(valor.replace(",", "."));
+          const push = (arr: any[], key: keyof any) => {
+            arr.forEach((it) => {
+              const [dd, mm, yyyy] = it.data.split("/");
+              const label = `${yyyy}-${mm}`;
+              const prev = byMonth.get(label) || {};
+              (prev as any)[key] = parse(it.valor);
+              byMonth.set(label, prev);
+            });
+          };
+          push(sSelic, "selic");
+          push(sIpca, "ipca");
+          push(sCdi, "cdi");
+
+          const rows = Array.from(byMonth.entries())
+            .sort(([a], [b]) => (a < b ? -1 : 1))
+            .slice(-6)
+            .map(([ym, v]) => ({
+              date: `${ym.slice(5, 7)}/${ym.slice(0, 4)}`,
+              selic: v.selic ?? 0,
+              ipca: v.ipca ?? 0,
+              cdi: v.cdi ?? 0,
+            }));
+          if (rows.length) setHistoricalRates(rows);
+        } catch {}
       } catch (error) {
         console.error("Error loading RF Brasil data:", error);
       }
@@ -267,7 +352,9 @@ export function RendaFixaBrasil() {
               <CardContent className="p-4">
                 <div className="text-center">
                   <p className="text-sm text-muted-foreground">Taxa Real</p>
-                  <p className="text-xl font-semibold">6.75%</p>
+                  <p className="text-xl font-semibold">
+                    {realRate != null ? `${realRate.toFixed(2)}%` : "--"}
+                  </p>
                   <p className="text-xs text-muted-foreground">a.a.</p>
                 </div>
               </CardContent>
@@ -276,7 +363,9 @@ export function RendaFixaBrasil() {
               <CardContent className="p-4">
                 <div className="text-center">
                   <p className="text-sm text-muted-foreground">Inclinação</p>
-                  <p className="text-xl font-semibold">120 bps</p>
+                  <p className="text-xl font-semibold">
+                    {slope10y2y != null ? `${slope10y2y} bps` : "--"}
+                  </p>
                   <p className="text-xs text-muted-foreground">10Y-2Y</p>
                 </div>
               </CardContent>
@@ -333,7 +422,7 @@ export function RendaFixaBrasil() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {scenarioData.map((scenario) => (
+                      {scenarios.map((scenario) => (
                         <SelectItem key={scenario.scenario} value={scenario.scenario}>
                           Cenário {scenario.scenario}
                         </SelectItem>
@@ -342,7 +431,7 @@ export function RendaFixaBrasil() {
                   </Select>
 
                   <div className="grid grid-cols-3 gap-4">
-                    {scenarioData
+                    {scenarios
                       .filter((s) => s.scenario === selectedScenario)
                       .map((scenario) => (
                         <React.Fragment key={scenario.scenario}>

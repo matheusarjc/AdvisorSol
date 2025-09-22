@@ -5,8 +5,16 @@ import { getSecurityHeaders, RateLimiter, validateRequest } from "@/lib/security
 const PUBLIC_PATHS = ["/login", "/_next", "/api/public", "/favicon.ico", "/assets"];
 
 // Create rate limiters for different endpoints
-const apiRateLimit = new RateLimiter(60000, 100); // 100 requests per minute
-const authRateLimit = new RateLimiter(15 * 60000, 5); // 5 requests per 15 minutes
+// More lenient limits in development
+const isDevelopment = process.env.NODE_ENV === "development";
+const apiRateLimit = new RateLimiter(
+  60000,
+  isDevelopment ? 1000 : 100 // 1000 requests per minute in dev, 100 in production
+);
+const authRateLimit = new RateLimiter(
+  15 * 60000,
+  isDevelopment ? 50 : 5 // 50 requests per 15 minutes in dev, 5 in production
+);
 
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
@@ -32,8 +40,8 @@ export function middleware(req: NextRequest) {
     return new NextResponse("Bad Request", { status: 400 });
   }
 
-  // Rate limiting
-  if (pathname.startsWith("/api/")) {
+  // Rate limiting - skip in development for better DX
+  if (pathname.startsWith("/api/") && !isDevelopment) {
     const rateLimit = apiRateLimit.isAllowed(req);
     if (!rateLimit.allowed) {
       return new NextResponse("Too Many Requests", {
@@ -45,11 +53,12 @@ export function middleware(req: NextRequest) {
     }
 
     // Add rate limit headers
-    response.headers.set("X-RateLimit-Limit", "100");
+    response.headers.set("X-RateLimit-Limit", isDevelopment ? "1000" : "100");
     response.headers.set("X-RateLimit-Remaining", rateLimit.remaining.toString());
     response.headers.set("X-RateLimit-Reset", rateLimit.resetTime.toString());
   }
 
+  // Auth rate limiting - still apply in development but more lenient
   if (pathname.startsWith("/login") || pathname.startsWith("/api/auth")) {
     const rateLimit = authRateLimit.isAllowed(req);
     if (!rateLimit.allowed) {

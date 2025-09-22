@@ -341,13 +341,13 @@ export function RendaVariavelEUA() {
             <div className="text-center">
               <p className="text-sm text-gray-600">{tracked} Quote</p>
               <p className="text-2xl font-semibold">
-                {quote ? `$${quote.price.toFixed(2)}` : "--"}
+                {quote && typeof quote.price === "number" ? `$${quote.price.toFixed(2)}` : "--"}
               </p>
               <p
                 className={`text-xs mt-1 ${
                   quote && quote.change >= 0 ? "text-green-600" : "text-red-600"
                 }`}>
-                {quote ? `${quote.change.toFixed(2)}%` : ""}
+                {quote && typeof quote.change === "number" ? `${quote.change.toFixed(2)}%` : ""}
               </p>
             </div>
           </CardContent>
@@ -376,10 +376,12 @@ export function RendaVariavelEUA() {
           <CardContent className="p-6">
             <div className="text-center">
               <p className="text-sm text-gray-600">MACD</p>
-              <p className="text-2xl font-semibold">{macd ? macd.macd.toFixed(2) : "--"}</p>
+              <p className="text-2xl font-semibold">
+                {macd && typeof macd.macd === "number" ? macd.macd.toFixed(2) : "--"}
+              </p>
               <p className="text-xs mt-1 text-muted-foreground">
-                Signal {macd ? macd.signal.toFixed(2) : "--"} • Hist{" "}
-                {macd ? macd.hist.toFixed(2) : "--"}
+                Signal {macd && typeof macd.signal === "number" ? macd.signal.toFixed(2) : "--"} •
+                Hist {macd && typeof macd.hist === "number" ? macd.hist.toFixed(2) : "--"}
               </p>
             </div>
           </CardContent>
@@ -603,7 +605,9 @@ export function RendaVariavelEUA() {
                           <p className="text-xs text-muted-foreground">{stock.name}</p>
                         </div>
                       </TableCell>
-                      <TableCell className="font-semibold">${stock.price.toFixed(2)}</TableCell>
+                      <TableCell className="font-semibold">
+                        ${typeof stock.price === "number" ? stock.price.toFixed(2) : "--"}
+                      </TableCell>
                       <TableCell>
                         <div className="flex items-center space-x-1">
                           {stock.change > 0 ? (
@@ -613,12 +617,17 @@ export function RendaVariavelEUA() {
                           )}
                           <span className={stock.change > 0 ? "text-green-600" : "text-red-600"}>
                             {stock.change > 0 ? "+" : ""}
-                            {stock.changePercent.toFixed(2)}%
+                            {typeof stock.changePercent === "number"
+                              ? stock.changePercent.toFixed(2)
+                              : "--"}
+                            %
                           </span>
                         </div>
                       </TableCell>
                       <TableCell>{stock.volume}</TableCell>
-                      <TableCell>{stock.pe ? stock.pe.toFixed(1) : "--"}</TableCell>
+                      <TableCell>
+                        {typeof stock.pe === "number" ? stock.pe.toFixed(1) : "--"}
+                      </TableCell>
                       <TableCell>
                         <div
                           className={`text-center px-2 py-1 rounded text-xs ${
@@ -628,7 +637,7 @@ export function RendaVariavelEUA() {
                               ? "bg-green-100 text-green-700 dark:bg-green-950/20"
                               : "bg-gray-100 text-gray-700 dark:bg-gray-800"
                           }`}>
-                          {stock.rsi ? stock.rsi.toFixed(1) : "--"}
+                          {typeof stock.rsi === "number" ? stock.rsi.toFixed(1) : "--"}
                         </div>
                       </TableCell>
                       <TableCell>
@@ -776,12 +785,17 @@ export function RendaVariavelEUA() {
                           <span
                             className={sector.performance > 0 ? "text-green-600" : "text-red-600"}>
                             {sector.performance > 0 ? "+" : ""}
-                            {sector.performance.toFixed(1)}%
+                            {typeof sector.performance === "number"
+                              ? sector.performance.toFixed(1)
+                              : "--"}
+                            %
                           </span>
                         </div>
                       </TableCell>
                       <TableCell>{sector.weight}%</TableCell>
-                      <TableCell>{sector.pe.toFixed(1)}x</TableCell>
+                      <TableCell>
+                        {typeof sector.pe === "number" ? sector.pe.toFixed(1) : "--"}x
+                      </TableCell>
                       <TableCell>
                         <Badge
                           variant={
@@ -830,20 +844,28 @@ export function RendaVariavelEUA() {
                     <TableRow key={index}>
                       <TableCell className="font-medium">{earning.symbol}</TableCell>
                       <TableCell>{earning.date}</TableCell>
-                      <TableCell>${earning.estimate.toFixed(2)}</TableCell>
+                      <TableCell>
+                        ${typeof earning.estimate === "number" ? earning.estimate.toFixed(2) : "--"}
+                      </TableCell>
                       <TableCell className="font-semibold">
-                        ${earning.reported.toFixed(2)}
+                        ${typeof earning.reported === "number" ? earning.reported.toFixed(2) : "--"}
                       </TableCell>
                       <TableCell>
                         <span className={earning.surprise > 0 ? "text-green-600" : "text-red-600"}>
                           {earning.surprise > 0 ? "+" : ""}
-                          {earning.surprise.toFixed(1)}%
+                          {typeof earning.surprise === "number"
+                            ? earning.surprise.toFixed(1)
+                            : "--"}
+                          %
                         </span>
                       </TableCell>
                       <TableCell>
                         <span className={earning.reaction > 0 ? "text-green-600" : "text-red-600"}>
                           {earning.reaction > 0 ? "+" : ""}
-                          {earning.reaction.toFixed(1)}%
+                          {typeof earning.reaction === "number"
+                            ? earning.reaction.toFixed(1)
+                            : "--"}
+                          %
                         </span>
                       </TableCell>
                     </TableRow>

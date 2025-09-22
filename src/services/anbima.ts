@@ -50,3 +50,17 @@ export async function fetchDebenaturesByRating(rating: "AAA" | "AA" | "A" | "BBB
   const debentures = await fetchDebentures({ rating });
   return debentures;
 }
+
+// Fetch DI curve (ANBIMA) for yield curve visualization
+export async function fetchDiCurve() {
+  const cacheKey = `anbima_di_curve`;
+
+  return apiCache.withCache(
+    cacheKey,
+    async () => {
+      const data = await anbima("/di-curve");
+      return data ?? [];
+    },
+    10 * 60 * 1000
+  );
+}
