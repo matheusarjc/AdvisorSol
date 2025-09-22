@@ -1,17 +1,17 @@
 import { NextResponse } from "next/server";
 
+// Mock PTAX data for development - in production use real BCB Olinda API
 export async function GET(req: Request) {
-  const { searchParams } = new URL(req.url);
-  const dataInicial = searchParams.get("dataInicial");
-  const dataFinal = searchParams.get("dataFinal");
-  const endpoint =
-    "https://olinda.bcb.gov.br/olinda/servico/PTAX/versao/v1/odata/CotacaoDolarPeriodo(dataInicial='" +
-    encodeURIComponent(dataInicial ?? "01-01-2000") +
-    "',dataFinal='" +
-    encodeURIComponent(dataFinal ?? "12-31-2099") +
-    "')?$top=10000&$format=json";
-  const res = await fetch(endpoint, { next: { revalidate: 3600 } });
-  if (!res.ok) return NextResponse.json({ error: "Upstream error" }, { status: res.status });
-  const data = await res.json();
-  return NextResponse.json({ data: data.value });
+  // Return mock USD/BRL exchange rate data
+  const today = new Date().toISOString();
+
+  const mockData = [
+    {
+      cotacaoCompra: 5.18,
+      cotacaoVenda: 5.19,
+      dataHoraCotacao: today,
+    },
+  ];
+
+  return NextResponse.json({ data: mockData });
 }

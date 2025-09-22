@@ -1,6 +1,10 @@
-import React from "react";
-import { RendaVariavelEUA } from "@/components/domains/RendaVariavelEUA";
+import React, { Suspense } from "react";
+import { LazyRendaVariavelEUA, DomainPageFallback } from "@/components/lazy/LazyDomainPages";
 
 export default function Page() {
-  return <RendaVariavelEUA />;
+  return (
+    <Suspense fallback={<DomainPageFallback />}>
+      <LazyRendaVariavelEUA />
+    </Suspense>
+  );
 }

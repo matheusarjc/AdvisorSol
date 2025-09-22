@@ -1,6 +1,10 @@
-import React from "react";
-import { Dashboard } from "@/components/domains/Dashboard";
+import React, { Suspense } from "react";
+import { LazyDashboard, DomainPageFallback } from "@/components/lazy/LazyDomainPages";
 
 export default function Page() {
-  return <Dashboard />;
+  return (
+    <Suspense fallback={<DomainPageFallback />}>
+      <LazyDashboard />
+    </Suspense>
+  );
 }

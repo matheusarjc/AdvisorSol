@@ -1,5 +1,5 @@
 "use client";
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card";
 import {
   LineChart,
@@ -28,6 +28,10 @@ import { Badge } from "../ui/badge";
 import { SectorHeatmap } from "../charts/SectorHeatmap";
 import { ComparativeChart } from "../charts/ComparativeChart";
 import { DashboardPersonalization } from "../DashboardPersonalization";
+import { useAuth } from "@/components/providers/auth-provider";
+import { loadUserDashboardWidgets, saveUserDashboardWidgets } from "@/services/firestore";
+import { useRealtime } from "@/components/providers/realtime-provider";
+import { fetchTopNews } from "@/services/news";
 
 const marketData = [
   { name: "Jan", ibovespa: 115000, sp500: 4500, selic: 13.75, vix: 18.5 },
@@ -91,11 +95,24 @@ const riskMetrics = [
 ];
 
 export function Dashboard() {
+  const { user } = useAuth();
   const [dashboardWidgets, setDashboardWidgets] = useState<any[]>([]);
+  const { lastUpdate, connected } = useRealtime();
 
-  const handleSaveWidgets = (widgets: any[]) => {
+  useEffect(() => {
+    if (!user) return;
+    loadUserDashboardWidgets(user.uid).then((widgets) => {
+      if (widgets) setDashboardWidgets(widgets);
+    });
+    // preload news
+    fetchTopNews(6)
+      .then()
+      .catch(() => {});
+  }, [user]);
+
+  const handleSaveWidgets = async (widgets: any[]) => {
     setDashboardWidgets(widgets);
-    console.log("Widgets salvos:", widgets);
+    if (user) await saveUserDashboardWidgets(user.uid, widgets);
   };
 
   return (
@@ -104,11 +121,20 @@ export function Dashboard() {
         <div>
           <h1>Dashboard</h1>
           <p className="text-muted-foreground">Visão geral dos mercados e portfolio</p>
+          <div className="mt-1 text-xs text-muted-foreground">
+            {connected ? (
+              <span>
+                Live • Atualizado em {lastUpdate?.ts?.replace("T", " ")?.slice(0, 19) || "--"}
+              </span>
+            ) : (
+              <span>Offline</span>
+            )}
+          </div>
         </div>
         <div className="flex items-center space-x-2">
-          <DashboardPersonalization onSave={handleSaveWidgets} />
+          <DashboardPersonalization onSave={handleSaveWidgets} initial={dashboardWidgets} />
           <Badge variant="outline" className="text-xs">
-            Atualizado: 16:30
+            {lastUpdate?.ts ? lastUpdate.ts.slice(11, 16) : "--:--"}
           </Badge>
         </div>
       </div>
@@ -134,6 +160,28 @@ export function Dashboard() {
                     : "border-l-green-500 bg-green-50 dark:bg-green-950/20"
                 }`}>
                 <p className="text-sm">{alert.message}</p>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Notícias em Tempo Real */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center space-x-2">
+            <AlertTriangle className="h-5 w-5" />
+            <span>Notícias em Tempo Real</span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-2">
+            {(lastUpdate?.news ?? []).slice(0, 3).map((n) => (
+              <div key={n.id} className="text-sm flex items-center justify-between">
+                <span className="truncate mr-2">{n.title}</span>
+                <Badge variant="outline" className="text-[10px]">
+                  {n.source}
+                </Badge>
               </div>
             ))}
           </div>

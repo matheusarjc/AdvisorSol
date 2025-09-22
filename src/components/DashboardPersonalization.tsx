@@ -128,10 +128,12 @@ const layouts = [
 
 export function DashboardPersonalization({
   onSave,
+  initial,
 }: {
   onSave: (widgets: DashboardWidget[]) => void;
+  initial?: DashboardWidget[];
 }) {
-  const [widgets, setWidgets] = useState<DashboardWidget[]>(defaultWidgets);
+  const [widgets, setWidgets] = useState<DashboardWidget[]>(initial ?? defaultWidgets);
   const [selectedLayout, setSelectedLayout] = useState("default");
   const [activeTab, setActiveTab] = useState("widgets");
 

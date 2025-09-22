@@ -11,6 +11,8 @@ import {
   ResponsiveContainer,
   AreaChart,
   Area,
+  BarChart,
+  Bar,
 } from "recharts";
 import { Badge } from "../ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
@@ -27,7 +29,20 @@ import {
   BarChart3,
   Target,
   AlertCircle,
+  ExternalLink,
+  FileText,
 } from "lucide-react";
+import {
+  fetchGlobalQuote,
+  fetchRSI,
+  fetchSMA,
+  fetchMACD,
+  fetchTimeSeriesDaily,
+  TimeSeriesData,
+} from "@/services/alpha";
+import { fetchSymbolNews, NewsItem } from "@/services/news";
+import { PriceAlertManager } from "@/components/alerts/PriceAlertManager";
+import { WatchlistManager } from "@/components/watchlist/WatchlistManager";
 
 const stocksData = [
   {
@@ -194,6 +209,37 @@ export function RendaVariavelEUA() {
   const [filterSector, setFilterSector] = useState("All");
   const [searchTerm, setSearchTerm] = useState("");
   const [priceData, setPriceData] = useState([] as any[]);
+  const [quote, setQuote] = useState<{ price: number; change: number } | null>(null);
+  const [rsi, setRsi] = useState<number | null>(null);
+  const [sma50, setSma50] = useState<number | null>(null);
+  const [sma200, setSma200] = useState<number | null>(null);
+  const [macd, setMacd] = useState<{ macd: number; signal: number; hist: number } | null>(null);
+  const [timeSeriesData, setTimeSeriesData] = useState<TimeSeriesData[]>([]);
+  const [symbolNews, setSymbolNews] = useState<NewsItem[]>([]);
+  const [tracked, setTracked] = useState("AAPL");
+
+  async function loadTechnicals(sym: string) {
+    const [q, r, s50, s200, m, ts, news] = await Promise.all([
+      fetchGlobalQuote(sym),
+      fetchRSI(sym),
+      fetchSMA(sym, 50),
+      fetchSMA(sym, 200),
+      fetchMACD(sym),
+      fetchTimeSeriesDaily(sym),
+      fetchSymbolNews(sym, 4),
+    ]);
+    setQuote({ price: q.price, change: q.change });
+    setRsi(r);
+    setSma50(s50.sma);
+    setSma200(s200.sma);
+    setMacd(m);
+    setTimeSeriesData(ts);
+    setSymbolNews(news);
+  }
+
+  useEffect(() => {
+    loadTechnicals(tracked).catch(() => {});
+  }, [tracked]);
 
   useEffect(() => {
     const generatePriceData = () => {
@@ -229,58 +275,213 @@ export function RendaVariavelEUA() {
         </p>
       </div>
 
+      <div className="flex items-center space-x-2 mb-4">
+        <span className="text-sm text-muted-foreground">Ticker</span>
+        <Select value={tracked} onValueChange={(v) => setTracked(v)}>
+          <SelectTrigger className="w-32">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="AAPL">AAPL</SelectItem>
+            <SelectItem value="MSFT">MSFT</SelectItem>
+            <SelectItem value="AMZN">AMZN</SelectItem>
+            <SelectItem value="GOOGL">GOOGL</SelectItem>
+            <SelectItem value="NVDA">NVDA</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>
-          <CardContent className="p-4">
+          <CardContent className="p-6">
             <div className="text-center">
-              <p className="text-sm text-muted-foreground">S&P 500</p>
-              <p className="text-xl font-semibold">4,891.32</p>
-              <div className="flex items-center justify-center space-x-1">
-                <TrendingUp className="h-4 w-4 text-green-600" />
-                <span className="text-sm text-green-600">+1.82%</span>
-              </div>
+              <p className="text-sm text-gray-600">{tracked} Quote</p>
+              <p className="text-2xl font-semibold">
+                {quote ? `$${quote.price.toFixed(2)}` : "--"}
+              </p>
+              <p
+                className={`text-xs mt-1 ${
+                  quote && quote.change >= 0 ? "text-green-600" : "text-red-600"
+                }`}>
+                {quote ? `${quote.change.toFixed(2)}%` : ""}
+              </p>
             </div>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="p-4">
+          <CardContent className="p-6">
             <div className="text-center">
-              <p className="text-sm text-muted-foreground">NASDAQ</p>
-              <p className="text-xl font-semibold">15,245.87</p>
-              <div className="flex items-center justify-center space-x-1">
-                <TrendingUp className="h-4 w-4 text-green-600" />
-                <span className="text-sm text-green-600">+2.15%</span>
-              </div>
+              <p className="text-sm text-gray-600">{tracked} RSI (14)</p>
+              <p className="text-2xl font-semibold">{rsi != null ? rsi.toFixed(1) : "--"}</p>
+              <p className="text-xs mt-1 text-muted-foreground">Alpha Vantage</p>
             </div>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="p-4">
+          <CardContent className="p-6">
             <div className="text-center">
-              <p className="text-sm text-muted-foreground">VIX</p>
-              <p className="text-xl font-semibold">{marketSentiment.vix}</p>
-              <p className="text-xs text-green-600">Baixa Volatilidade</p>
+              <p className="text-sm text-gray-600">SMA 50 / 200</p>
+              <p className="text-2xl font-semibold">
+                {sma50 != null ? sma50.toFixed(2) : "--"} /{" "}
+                {sma200 != null ? sma200.toFixed(2) : "--"}
+              </p>
             </div>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="p-4">
+          <CardContent className="p-6">
             <div className="text-center">
-              <p className="text-sm text-muted-foreground">Fear & Greed</p>
-              <p className="text-xl font-semibold">{marketSentiment.fearGreed}</p>
-              <p className="text-xs text-green-600">Greed</p>
+              <p className="text-sm text-gray-600">MACD</p>
+              <p className="text-2xl font-semibold">{macd ? macd.macd.toFixed(2) : "--"}</p>
+              <p className="text-xs mt-1 text-muted-foreground">
+                Signal {macd ? macd.signal.toFixed(2) : "--"} • Hist{" "}
+                {macd ? macd.hist.toFixed(2) : "--"}
+              </p>
             </div>
           </CardContent>
         </Card>
       </div>
 
+      {/* Price and Volume Charts */}
+      {timeSeriesData.length > 0 && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Gráfico de Preços - {tracked}</CardTitle>
+              <CardDescription>Preço de fechamento com médias móveis</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ResponsiveContainer width="100%" height={300}>
+                <LineChart data={timeSeriesData.slice(-30)}>
+                  <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
+                  <XAxis
+                    dataKey="date"
+                    tickFormatter={(value) =>
+                      new Date(value).toLocaleDateString("pt-BR", {
+                        month: "short",
+                        day: "numeric",
+                      })
+                    }
+                  />
+                  <YAxis domain={["dataMin - 5", "dataMax + 5"]} />
+                  <Tooltip
+                    formatter={(value, name) => [
+                      `$${value}`,
+                      name === "close" ? "Preço" : name === "sma50" ? "SMA 50" : "SMA 200",
+                    ]}
+                    labelFormatter={(label) => new Date(label).toLocaleDateString("pt-BR")}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="close"
+                    stroke="hsl(var(--chart-1))"
+                    strokeWidth={2}
+                    name="close"
+                  />
+                  {sma50 && (
+                    <Line
+                      type="monotone"
+                      dataKey={() => sma50}
+                      stroke="hsl(var(--chart-2))"
+                      strokeWidth={1}
+                      strokeDasharray="5 5"
+                      name="sma50"
+                      dot={false}
+                    />
+                  )}
+                  {sma200 && (
+                    <Line
+                      type="monotone"
+                      dataKey={() => sma200}
+                      stroke="hsl(var(--chart-3))"
+                      strokeWidth={1}
+                      strokeDasharray="5 5"
+                      name="sma200"
+                      dot={false}
+                    />
+                  )}
+                </LineChart>
+              </ResponsiveContainer>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Volume de Negociação - {tracked}</CardTitle>
+              <CardDescription>Volume diário de negociação</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={timeSeriesData.slice(-30)}>
+                  <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
+                  <XAxis
+                    dataKey="date"
+                    tickFormatter={(value) =>
+                      new Date(value).toLocaleDateString("pt-BR", {
+                        month: "short",
+                        day: "numeric",
+                      })
+                    }
+                  />
+                  <YAxis />
+                  <Tooltip
+                    formatter={(value) => [`${(value as number).toLocaleString()}`, "Volume"]}
+                    labelFormatter={(label) => new Date(label).toLocaleDateString("pt-BR")}
+                  />
+                  <Bar dataKey="volume" fill="hsl(var(--chart-4))" />
+                </BarChart>
+              </ResponsiveContainer>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Symbol-specific News */}
+      {symbolNews.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center space-x-2">
+              <FileText className="h-5 w-5" />
+              <span>Notícias - {tracked}</span>
+            </CardTitle>
+            <CardDescription>Últimas notícias relacionadas ao ticker selecionado</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {symbolNews.map((article, index) => (
+                <a
+                  href={article.url || "#"}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  key={article.id}
+                  className="block p-4 border rounded-lg hover:bg-muted/50 transition-colors">
+                  <div className="flex justify-between items-start">
+                    <div className="flex-1">
+                      <h4 className="font-medium text-sm mb-1">{article.title}</h4>
+                      <div className="flex items-center space-x-2 text-xs text-muted-foreground">
+                        <span>{article.source}</span>
+                        <span>•</span>
+                        <span>{new Date(article.ts).toLocaleDateString("pt-BR")}</span>
+                      </div>
+                    </div>
+                    <ExternalLink className="h-4 w-4 text-muted-foreground ml-2" />
+                  </div>
+                </a>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <Tabs defaultValue="screener" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-5">
+        <TabsList className="grid w-full grid-cols-7">
           <TabsTrigger value="screener">Screener</TabsTrigger>
           <TabsTrigger value="analysis">Análise Técnica</TabsTrigger>
           <TabsTrigger value="sectors">Setores</TabsTrigger>
           <TabsTrigger value="earnings">Earnings</TabsTrigger>
           <TabsTrigger value="sentiment">Sentimento</TabsTrigger>
+          <TabsTrigger value="alerts">Alertas</TabsTrigger>
+          <TabsTrigger value="watchlist">Watchlist</TabsTrigger>
         </TabsList>
 
         <TabsContent value="screener" className="space-y-6">
@@ -674,6 +875,14 @@ export function RendaVariavelEUA() {
               </CardContent>
             </Card>
           </div>
+        </TabsContent>
+
+        <TabsContent value="alerts" className="space-y-6">
+          <PriceAlertManager />
+        </TabsContent>
+
+        <TabsContent value="watchlist" className="space-y-6">
+          <WatchlistManager />
         </TabsContent>
       </Tabs>
     </div>

@@ -1,6 +1,10 @@
-import React from "react";
-import { RiskAnalysis } from "@/components/domains/RiskAnalysis";
+import React, { Suspense } from "react";
+import { LazyRiskAnalysis, DomainPageFallback } from "@/components/lazy/LazyDomainPages";
 
 export default function Page() {
-  return <RiskAnalysis />;
+  return (
+    <Suspense fallback={<DomainPageFallback />}>
+      <LazyRiskAnalysis />
+    </Suspense>
+  );
 }

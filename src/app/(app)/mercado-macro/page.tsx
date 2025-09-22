@@ -1,6 +1,10 @@
-import React from "react";
-import { MercadoMacro } from "@/components/domains/MercadoMacro";
+import React, { Suspense } from "react";
+import { LazyMercadoMacro, DomainPageFallback } from "@/components/lazy/LazyDomainPages";
 
 export default function Page() {
-  return <MercadoMacro />;
+  return (
+    <Suspense fallback={<DomainPageFallback />}>
+      <LazyMercadoMacro />
+    </Suspense>
+  );
 }

@@ -1,5 +1,5 @@
 "use client";
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import {
@@ -21,6 +21,11 @@ import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
 import { ANBIMACurves } from "../charts/ANBIMACurves";
+import { fetchDebentures, fetchCreditCurves } from "@/services/anbima";
+import { fetchLatestSGSValue } from "@/services/sgs";
+import { fetchSidraIpcaSubitems } from "@/services/sidra";
+import { fetchTesouroTitulos } from "@/services/tesouro";
+import { useRealtime } from "@/components/providers/realtime-provider";
 
 const yieldCurveData = [
   { maturity: "1M", rate: 11.25, yesterday: 11.3 },
@@ -93,6 +98,7 @@ const scenarioData = [
 ];
 
 export function RendaFixaBrasil() {
+  const { lastUpdate: realtimeData, connected: realtimeLoading } = useRealtime();
   const [selectedScenario, setSelectedScenario] = useState("Base");
   const [activeTab, setActiveTab] = useState("overview");
   const [simulatorValues, setSimulatorValues] = useState({
@@ -100,6 +106,57 @@ export function RendaFixaBrasil() {
     months: "12",
     assetType: "cdb",
   });
+  const [tdSimulator, setTdSimulator] = useState({
+    amount: "10000",
+    selectedTitulo: "",
+    investmentType: "compra",
+  });
+  const [liveDebentures, setLiveDebentures] = useState<any[]>([]);
+  const [selic, setSelic] = useState<number | null>(null);
+  const [ipca, setIpca] = useState<number | null>(null);
+  const [ipcaSubitems, setIpcaSubitems] = useState<any[] | null>(null);
+  const [tdTitulos, setTdTitulos] = useState<any[] | null>(null);
+
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        // Fetch live debentures from ANBIMA
+        const debentures = await fetchDebentures();
+        setLiveDebentures(debentures);
+
+        // Fetch latest Selic and IPCA from SGS
+        const latestSelic = await fetchLatestSGSValue(11); // Selic meta
+        const latestIpca = await fetchLatestSGSValue(433); // IPCA mensal
+
+        if (latestSelic) setSelic(latestSelic);
+        if (latestIpca) setIpca(latestIpca);
+
+        // Fetch SIDRA IPCA subitems
+        const sidra = await fetchSidraIpcaSubitems();
+        setIpcaSubitems(sidra.subitens.slice(0, 4));
+
+        const titulos = await fetchTesouroTitulos();
+        setTdTitulos(titulos.slice(0, 5));
+      } catch (error) {
+        console.error("Error loading RF Brasil data:", error);
+      }
+    };
+
+    loadData();
+  }, []);
+
+  useEffect(() => {
+    // Update from realtime data
+    if (realtimeData?.macro?.dgs10) {
+      // Update with macro data if available
+    }
+    if (realtimeData?.fx?.usdbrl) {
+      // Update with FX data if available
+    }
+    if (realtimeData?.news) {
+      // Update with news data if available
+    }
+  }, [realtimeData]);
 
   const calculateReturnProjection = () => {
     const amount = parseFloat(simulatorValues.amount);
@@ -111,6 +168,43 @@ export function RendaFixaBrasil() {
 
     const finalAmount = amount * Math.pow(1 + rate, months / 12);
     return finalAmount - amount;
+  };
+
+  const calculateTesouroInvestment = () => {
+    if (!tdTitulos || !tdSimulator.selectedTitulo) return null;
+
+    const titulo = tdTitulos.find((t) => t.nome === tdSimulator.selectedTitulo);
+    if (!titulo) return null;
+
+    const amount = parseFloat(tdSimulator.amount);
+    const taxa = tdSimulator.investmentType === "compra" ? titulo.taxaCompra : titulo.taxaVenda;
+    const pu = titulo.pu;
+
+    // Calculate quantity of bonds
+    const quantity = Math.floor(amount / pu);
+    const totalInvested = quantity * pu;
+
+    // Calculate projected return based on bond type
+    let projectedReturn = 0;
+    if (titulo.indexador === "IPCA") {
+      const ipcaRate = ipca ? ipca / 100 : 0.0423;
+      projectedReturn = totalInvested * Math.pow(1 + ipcaRate + taxa / 100, 1) - totalInvested;
+    } else if (titulo.indexador === "SELIC") {
+      const selicRate = selic ? selic / 100 : 0.1125;
+      projectedReturn = totalInvested * Math.pow(1 + selicRate, 1) - totalInvested;
+    } else {
+      // Prefixado
+      projectedReturn = totalInvested * Math.pow(1 + taxa / 100, 1) - totalInvested;
+    }
+
+    return {
+      quantity,
+      totalInvested,
+      projectedReturn,
+      pu,
+      taxa,
+      indexador: titulo.indexador,
+    };
   };
 
   const exportScenarioReport = () => {
@@ -126,17 +220,23 @@ export function RendaFixaBrasil() {
             Análise de títulos de renda fixa e simulações de cenários
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={exportScenarioReport}>
-          <Download className="h-4 w-4 mr-2" />
-          Exportar Cenários
-        </Button>
+        <div className="flex items-center space-x-2">
+          <Badge variant="outline" className={!realtimeLoading ? "animate-pulse" : ""}>
+            ● {!realtimeLoading ? "Conectando..." : "Ao vivo"}
+          </Badge>
+          <Button variant="outline" size="sm" onClick={exportScenarioReport}>
+            <Download className="h-4 w-4 mr-2" />
+            Exportar Cenários
+          </Button>
+        </div>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="overview">Visão Geral</TabsTrigger>
           <TabsTrigger value="anbima">Curvas ANBIMA</TabsTrigger>
           <TabsTrigger value="treasury">Tesouro IPCA+</TabsTrigger>
+          <TabsTrigger value="simulator">Simulador TD</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="space-y-6">
@@ -145,7 +245,9 @@ export function RendaFixaBrasil() {
               <CardContent className="p-4">
                 <div className="text-center">
                   <p className="text-sm text-muted-foreground">Selic Atual</p>
-                  <p className="text-xl font-semibold">11.25%</p>
+                  <p className="text-xl font-semibold">
+                    {selic != null ? `${selic.toFixed(2)}%` : "11.25%"}
+                  </p>
                   <p className="text-xs text-red-600">-0.50pp</p>
                 </div>
               </CardContent>
@@ -154,7 +256,9 @@ export function RendaFixaBrasil() {
               <CardContent className="p-4">
                 <div className="text-center">
                   <p className="text-sm text-muted-foreground">IPCA 12M</p>
-                  <p className="text-xl font-semibold">4.23%</p>
+                  <p className="text-xl font-semibold">
+                    {ipca != null ? `${ipca.toFixed(2)}%` : "4.23%"}
+                  </p>
                   <p className="text-xs text-green-600">-0.27pp</p>
                 </div>
               </CardContent>
@@ -390,41 +494,49 @@ export function RendaFixaBrasil() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {debenturesData.map((debenture, index) => (
-                    <TableRow key={index}>
-                      <TableCell>
-                        <div>
-                          <p className="font-medium">{debenture.issuer}</p>
-                          <p className="text-xs text-muted-foreground">{debenture.code}</p>
-                        </div>
-                      </TableCell>
-                      <TableCell>{debenture.maturity}</TableCell>
-                      <TableCell>
-                        <Badge
-                          variant={debenture.rating.startsWith("AA") ? "default" : "secondary"}>
-                          {debenture.rating}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="font-semibold">+{debenture.spread} bps</TableCell>
-                      <TableCell>{debenture.duration}</TableCell>
-                      <TableCell className="font-semibold text-green-600">
-                        {debenture.yield.toFixed(2)}%
-                      </TableCell>
-                      <TableCell>{debenture.volume}</TableCell>
-                      <TableCell>
-                        {debenture.alert === "spread_alto" ? (
-                          <div className="flex items-center space-x-1">
-                            <AlertTriangle className="h-4 w-4 text-yellow-600" />
-                            <span className="text-xs text-yellow-600">Spread Alto</span>
+                  {(liveDebentures.length > 0 ? liveDebentures : debenturesData).map(
+                    (debenture, index) => (
+                      <TableRow key={index}>
+                        <TableCell>
+                          <div>
+                            <p className="font-medium">{debenture.issuer}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {debenture.code || debenture.indexer}
+                            </p>
                           </div>
-                        ) : (
-                          <Badge variant="outline" className="text-green-600">
-                            Normal
+                        </TableCell>
+                        <TableCell>{debenture.maturity}</TableCell>
+                        <TableCell>
+                          <Badge
+                            variant={debenture.rating.startsWith("AA") ? "default" : "secondary"}>
+                            {debenture.rating}
                           </Badge>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                        </TableCell>
+                        <TableCell className="font-semibold">+{debenture.spread} bps</TableCell>
+                        <TableCell>{debenture.duration || "N/A"}</TableCell>
+                        <TableCell className="font-semibold text-green-600">
+                          {(typeof debenture.yield === "number"
+                            ? debenture.yield
+                            : parseFloat(debenture.yield) || 0
+                          ).toFixed(2)}
+                          %
+                        </TableCell>
+                        <TableCell>{debenture.volume || `R$ ${debenture.pu || 1000}M`}</TableCell>
+                        <TableCell>
+                          {debenture.alert === "spread_alto" || debenture.spread > 200 ? (
+                            <div className="flex items-center space-x-1">
+                              <AlertTriangle className="h-4 w-4 text-yellow-600" />
+                              <span className="text-xs text-yellow-600">Spread Alto</span>
+                            </div>
+                          ) : (
+                            <Badge variant="outline" className="text-green-600">
+                              Normal
+                            </Badge>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    )
+                  )}
                 </TableBody>
               </Table>
             </CardContent>
@@ -548,6 +660,288 @@ export function RendaFixaBrasil() {
                   </LineChart>
                 </ResponsiveContainer>
               </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center space-x-2">
+                <span>IPCA - Principais Subitens</span>
+              </CardTitle>
+              <CardDescription>Peso no índice e variações</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Subitem</TableHead>
+                    <TableHead>Peso (%)</TableHead>
+                    <TableHead>Mensal (%)</TableHead>
+                    <TableHead>12M (%)</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {(ipcaSubitems || []).map((s) => (
+                    <TableRow key={s.codigo}>
+                      <TableCell className="font-medium">{s.descricao}</TableCell>
+                      <TableCell>{s.peso.toFixed(1)}</TableCell>
+                      <TableCell className={s.mensal >= 0 ? "text-red-600" : "text-green-600"}>
+                        {s.mensal.toFixed(2)}
+                      </TableCell>
+                      <TableCell>{s.anual.toFixed(2)}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Tesouro Direto - Indicativos</CardTitle>
+              <CardDescription>Taxas e preços (compra/venda)</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Título</TableHead>
+                    <TableHead>Vencimento</TableHead>
+                    <TableHead>Tx Compra</TableHead>
+                    <TableHead>Tx Venda</TableHead>
+                    <TableHead>PU</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {(tdTitulos || []).map((t) => (
+                    <TableRow key={`${t.nome}-${t.vencimento}`}>
+                      <TableCell className="font-medium">{t.nome}</TableCell>
+                      <TableCell>{t.vencimento}</TableCell>
+                      <TableCell className="text-green-600 font-semibold">
+                        {t.taxaCompra.toFixed(2)}%
+                      </TableCell>
+                      <TableCell>{t.taxaVenda.toFixed(2)}%</TableCell>
+                      <TableCell>
+                        {t.pu.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="simulator" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center space-x-2">
+                <Calculator className="h-5 w-5" />
+                <span>Simulador Tesouro Direto</span>
+              </CardTitle>
+              <CardDescription>
+                Simule investimentos em títulos do Tesouro Nacional com dados em tempo real
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>Valor do Investimento (R$)</Label>
+                    <Input
+                      value={tdSimulator.amount}
+                      onChange={(e) => setTdSimulator({ ...tdSimulator, amount: e.target.value })}
+                      placeholder="10000"
+                      type="number"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Título</Label>
+                    <Select
+                      value={tdSimulator.selectedTitulo}
+                      onValueChange={(value) =>
+                        setTdSimulator({ ...tdSimulator, selectedTitulo: value })
+                      }>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Selecione um título" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {tdTitulos?.map((titulo) => (
+                          <SelectItem key={titulo.nome} value={titulo.nome}>
+                            {titulo.nome} - {titulo.vencimento}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Tipo de Operação</Label>
+                    <Select
+                      value={tdSimulator.investmentType}
+                      onValueChange={(value) =>
+                        setTdSimulator({ ...tdSimulator, investmentType: value })
+                      }>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="compra">Compra (Taxa Compra)</SelectItem>
+                        <SelectItem value="venda">Venda (Taxa Venda)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  {tdSimulator.selectedTitulo &&
+                    (() => {
+                      const titulo = tdTitulos?.find((t) => t.nome === tdSimulator.selectedTitulo);
+                      if (!titulo) return null;
+
+                      return (
+                        <div className="space-y-3">
+                          <h4 className="font-semibold">Detalhes do Título</h4>
+                          <div className="p-3 bg-muted rounded-lg space-y-2">
+                            <div className="flex justify-between">
+                              <span className="text-sm">Vencimento:</span>
+                              <span className="font-medium">{titulo.vencimento}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-sm">Indexador:</span>
+                              <Badge variant="secondary">{titulo.indexador}</Badge>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-sm">Taxa Compra:</span>
+                              <span className="font-semibold text-green-600">
+                                {titulo.taxaCompra.toFixed(2)}%
+                              </span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-sm">Taxa Venda:</span>
+                              <span className="font-semibold text-red-600">
+                                {titulo.taxaVenda.toFixed(2)}%
+                              </span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-sm">PU Atual:</span>
+                              <span className="font-medium">R$ {titulo.pu.toFixed(2)}</span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                </div>
+
+                <div className="space-y-4">
+                  {calculateTesouroInvestment() &&
+                    (() => {
+                      const calc = calculateTesouroInvestment();
+                      if (!calc) return null;
+
+                      return (
+                        <div className="space-y-3">
+                          <h4 className="font-semibold">Resultado da Simulação</h4>
+                          <div className="p-3 bg-muted rounded-lg space-y-2">
+                            <div className="flex justify-between">
+                              <span className="text-sm">Quantidade de Títulos:</span>
+                              <span className="font-medium">{calc.quantity}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-sm">Valor Total Investido:</span>
+                              <span className="font-medium">
+                                R${" "}
+                                {calc.totalInvested.toLocaleString("pt-BR", {
+                                  minimumFractionDigits: 2,
+                                })}
+                              </span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-sm">Taxa Aplicada:</span>
+                              <span className="font-semibold">{calc.taxa.toFixed(2)}%</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-sm">Retorno Projetado (1 ano):</span>
+                              <span className="font-semibold text-green-600">
+                                R${" "}
+                                {calc.projectedReturn.toLocaleString("pt-BR", {
+                                  minimumFractionDigits: 2,
+                                })}
+                              </span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-sm">Rentabilidade Anual:</span>
+                              <span className="font-semibold text-green-600">
+                                {((calc.projectedReturn / calc.totalInvested) * 100).toFixed(2)}%
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Comparação de Títulos Disponíveis</CardTitle>
+              <CardDescription>
+                Todos os títulos do Tesouro Direto com dados atualizados
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Título</TableHead>
+                    <TableHead>Vencimento</TableHead>
+                    <TableHead>Indexador</TableHead>
+                    <TableHead>Taxa Compra</TableHead>
+                    <TableHead>Taxa Venda</TableHead>
+                    <TableHead>PU</TableHead>
+                    <TableHead>Rentabilidade Anual</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {tdTitulos?.map((titulo, index) => {
+                    let rentabilidadeAnual = 0;
+                    if (titulo.indexador === "IPCA") {
+                      const ipcaRate = ipca ? ipca / 100 : 0.0423;
+                      rentabilidadeAnual = (ipcaRate + titulo.taxaCompra / 100) * 100;
+                    } else if (titulo.indexador === "SELIC") {
+                      const selicRate = selic ? selic / 100 : 0.1125;
+                      rentabilidadeAnual = selicRate * 100;
+                    } else {
+                      rentabilidadeAnual = titulo.taxaCompra;
+                    }
+
+                    return (
+                      <TableRow key={index}>
+                        <TableCell className="font-medium">{titulo.nome}</TableCell>
+                        <TableCell>{titulo.vencimento}</TableCell>
+                        <TableCell>
+                          <Badge variant="secondary">{titulo.indexador}</Badge>
+                        </TableCell>
+                        <TableCell className="font-semibold text-green-600">
+                          {titulo.taxaCompra.toFixed(2)}%
+                        </TableCell>
+                        <TableCell className="font-semibold text-red-600">
+                          {titulo.taxaVenda.toFixed(2)}%
+                        </TableCell>
+                        <TableCell>
+                          R$ {titulo.pu.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                        </TableCell>
+                        <TableCell className="font-semibold text-green-600">
+                          {rentabilidadeAnual.toFixed(2)}%
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
             </CardContent>
           </Card>
         </TabsContent>

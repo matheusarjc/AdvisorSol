@@ -56,6 +56,7 @@ export function Sidebar({ currentScreen, onNavigate, collapsed, onToggle }: Side
               <li key={item.id}>
                 <Link
                   href={`/${item.id === "dashboard" ? "dashboard" : item.id}`}
+                  prefetch={true}
                   className={cn(
                     "w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-left transition-colors text-sm",
                     isActive

@@ -21,15 +21,15 @@ export default function Page() {
     document.documentElement.classList.toggle("dark", darkMode);
   }, [darkMode]);
 
+  useEffect(() => {
+    if (user) {
+      router.replace("/dashboard");
+    }
+  }, [user, router]);
+
   const handleLogin = async (email: string, password: string) => {
     await signIn(email, password);
-    router.replace("/dashboard");
   };
-
-  if (user) {
-    router.replace("/dashboard");
-    return null;
-  }
 
   return (
     <Login

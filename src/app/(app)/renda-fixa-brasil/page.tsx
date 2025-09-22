@@ -1,6 +1,10 @@
-import React from "react";
-import { RendaFixaBrasil } from "@/components/domains/RendaFixaBrasil";
+import React, { Suspense } from "react";
+import { LazyRendaFixaBrasil, DomainPageFallback } from "@/components/lazy/LazyDomainPages";
 
 export default function Page() {
-  return <RendaFixaBrasil />;
+  return (
+    <Suspense fallback={<DomainPageFallback />}>
+      <LazyRendaFixaBrasil />
+    </Suspense>
+  );
 }

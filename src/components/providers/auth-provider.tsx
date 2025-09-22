@@ -1,10 +1,16 @@
 "use client";
 import React, { createContext, useContext, useEffect, useState } from "react";
-import { auth } from "@/lib/firebase";
-import { onAuthStateChanged, signInWithEmailAndPassword, signOut, User } from "firebase/auth";
+
+// Mock user type for development
+interface MockUser {
+  uid: string;
+  email: string;
+  displayName?: string;
+  getIdToken: () => Promise<string>;
+}
 
 interface AuthContextValue {
-  user: User | null;
+  user: MockUser | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signOutUser: () => Promise<void>;
@@ -13,29 +19,49 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<MockUser | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (u) => {
-      setUser(u);
-      setLoading(false);
-      if (u) {
-        const token = await u.getIdToken();
-        document.cookie = `session=${token}; path=/; max-age=3600; samesite=lax`;
-      } else {
-        document.cookie = `session=; path=/; max-age=0; samesite=lax`;
-      }
-    });
-    return () => unsub();
+    // Check for existing session
+    const existingSession = document.cookie
+      .split("; ")
+      .find((row) => row.startsWith("session="))
+      ?.split("=")[1];
+
+    if (existingSession && existingSession !== "") {
+      // Mock user from existing session
+      setUser({
+        uid: "demo-user-123",
+        email: "demo@advisorsol.com",
+        displayName: "Demo User",
+        getIdToken: async () => "demo-token-123",
+      });
+    }
+
+    setLoading(false);
   }, []);
 
   const signIn = async (email: string, password: string) => {
-    await signInWithEmailAndPassword(auth, email, password);
+    // Mock authentication - accept any email/password for demo
+    if (email && password) {
+      const mockUser: MockUser = {
+        uid: "demo-user-123",
+        email: email,
+        displayName: "Demo User",
+        getIdToken: async () => "demo-token-123",
+      };
+
+      setUser(mockUser);
+      document.cookie = `session=demo-token-123; path=/; max-age=3600; samesite=lax`;
+    } else {
+      throw new Error("Email and password required");
+    }
   };
 
   const signOutUser = async () => {
-    await signOut(auth);
+    setUser(null);
+    document.cookie = `session=; path=/; max-age=0; samesite=lax`;
   };
 
   return (

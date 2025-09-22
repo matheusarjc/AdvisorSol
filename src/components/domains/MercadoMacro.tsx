@@ -29,6 +29,11 @@ import {
   DollarSign,
   Zap,
 } from "lucide-react";
+import { fetchLatestSeriesValue } from "@/services/fred";
+import { fetchLatestSGSValue } from "@/services/sgs";
+import { fetchLatestPTAX } from "@/services/ptax";
+import { fetchCommodities } from "@/services/commodities";
+import { useRealtime } from "@/components/providers/realtime-provider";
 
 const macroIndicators = [
   {
@@ -154,19 +159,57 @@ const centralBankWatch = [
 export function MercadoMacro() {
   const [selectedTimeframe, setSelectedTimeframe] = useState("6M");
   const [realTimeData, setRealTimeData] = useState(economicData);
+  const [slope102y, setSlope102y] = useState<number | null>(null);
+  const [slope103m, setSlope103m] = useState<number | null>(null);
+  const [vix, setVix] = useState<number | null>(null);
+  const [selic, setSelic] = useState<number | null>(null);
+  const [ptax, setPtax] = useState<{ compra: number; venda: number } | null>(null);
+  const { lastUpdate, connected } = useRealtime();
+
+  // Removido o interval de atualização em tempo real para melhorar performance
+  // useEffect(() => {
+  //   const interval = setInterval(() => {
+  //     setRealTimeData((prev) =>
+  //       prev.map((item) => ({
+  //         ...item,
+  //         fedRate: item.fedRate + (Math.random() - 0.5) * 0.05,
+  //         inflation: Math.max(0, item.inflation + (Math.random() - 0.5) * 0.1),
+  //       }))
+  //     );
+  //   }, 5000);
+
+  //   return () => clearInterval(interval);
+  // }, []);
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      setRealTimeData((prev) =>
-        prev.map((item) => ({
-          ...item,
-          fedRate: item.fedRate + (Math.random() - 0.5) * 0.05,
-          inflation: Math.max(0, item.inflation + (Math.random() - 0.5) * 0.1),
-        }))
-      );
-    }, 5000);
+    if (!lastUpdate) return;
+    if (lastUpdate.macro?.dgs10 != null && lastUpdate.macro?.dgs2 != null) {
+      setSlope102y(parseFloat((lastUpdate.macro.dgs10 - lastUpdate.macro.dgs2).toFixed(2)));
+    }
+    if (lastUpdate.macro?.vix != null) setVix(parseFloat(lastUpdate.macro.vix.toFixed(2)));
+    if (lastUpdate.fx?.usdbrl) setPtax(lastUpdate.fx.usdbrl);
+  }, [lastUpdate]);
 
-    return () => clearInterval(interval);
+  useEffect(() => {
+    (async () => {
+      try {
+        // SGS Selic diária: série 11 (meta) ou 4189 (Selic diária acumulada), aqui usamos 11 como proxy
+        const selicAtual = await fetchLatestSGSValue(11);
+        setSelic(selicAtual);
+        const ptaxAtual = await fetchLatestPTAX();
+        setPtax(ptaxAtual);
+
+        // commodities
+        const quotes = await fetchCommodities();
+        // map to local shape
+        // @ts-ignore
+        (commodities as any).splice(
+          0,
+          (commodities as any).length,
+          ...quotes.map((q) => ({ name: q.name, price: q.price, change: q.change, unit: q.unit }))
+        );
+      } catch {}
+    })();
   }, []);
 
   return (
@@ -175,6 +218,15 @@ export function MercadoMacro() {
         <div>
           <h1>Mercado Macro</h1>
           <p className="text-muted-foreground">Análise macroeconômica global em tempo real</p>
+          <div className="flex flex-wrap items-center gap-3 mt-2 text-sm">
+            <Badge variant="outline">Selic: {selic != null ? `${selic.toFixed(2)}%` : "--"}</Badge>
+            <Badge variant="outline">
+              USD/BRL: {ptax ? `${ptax.compra.toFixed(2)} / ${ptax.venda.toFixed(2)}` : "--"}
+            </Badge>
+            <Badge variant={connected ? "default" : "secondary"}>
+              {connected ? "Live" : "Offline"}
+            </Badge>
+          </div>
         </div>
         <Badge variant="outline" className="animate-pulse">
           ● Ao vivo
@@ -392,8 +444,18 @@ export function MercadoMacro() {
               <CardContent className="p-4">
                 <div className="text-center">
                   <p className="text-sm text-muted-foreground">10Y-2Y Spread</p>
-                  <p className="text-xl font-semibold text-red-600">-50 bps</p>
-                  <p className="text-xs text-red-600">Curva Invertida</p>
+                  <p
+                    className={`text-xl font-semibold ${
+                      slope102y != null && slope102y < 0 ? "text-red-600" : "text-green-600"
+                    }`}>
+                    {slope102y != null ? `${slope102y * 100} bps` : "--"}
+                  </p>
+                  <p
+                    className={`text-xs ${
+                      slope102y != null && slope102y < 0 ? "text-red-600" : "text-green-600"
+                    }`}>
+                    {slope102y != null && slope102y < 0 ? "Curva Invertida" : "Curva Normal"}
+                  </p>
                 </div>
               </CardContent>
             </Card>
@@ -401,17 +463,29 @@ export function MercadoMacro() {
               <CardContent className="p-4">
                 <div className="text-center">
                   <p className="text-sm text-muted-foreground">10Y-3M Spread</p>
-                  <p className="text-xl font-semibold text-red-600">-107 bps</p>
-                  <p className="text-xs text-red-600">Fortemente Invertida</p>
+                  <p
+                    className={`text-xl font-semibold ${
+                      slope103m != null && slope103m < 0 ? "text-red-600" : "text-green-600"
+                    }`}>
+                    {slope103m != null ? `${slope103m * 100} bps` : "--"}
+                  </p>
+                  <p
+                    className={`text-xs ${
+                      slope103m != null && slope103m < 0 ? "text-red-600" : "text-green-600"
+                    }`}>
+                    {slope103m != null && slope103m < 0 ? "Fortemente Invertida" : "Normal"}
+                  </p>
                 </div>
               </CardContent>
             </Card>
             <Card>
               <CardContent className="p-4">
                 <div className="text-center">
-                  <p className="text-sm text-muted-foreground">Prob. Recessão</p>
-                  <p className="text-xl font-semibold text-yellow-600">68%</p>
-                  <p className="text-xs text-yellow-600">12 meses</p>
+                  <p className="text-sm text-muted-foreground">VIX</p>
+                  <p className="text-xl font-semibold text-yellow-600">
+                    {vix != null ? vix.toFixed(2) : "--"}
+                  </p>
+                  <p className="text-xs text-yellow-600">Volatilidade implícita</p>
                 </div>
               </CardContent>
             </Card>

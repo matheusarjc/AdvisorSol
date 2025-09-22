@@ -1,5 +1,5 @@
 "use client";
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card";
 import {
   LineChart,
@@ -13,16 +13,18 @@ import {
   Area,
 } from "recharts";
 import { Badge } from "../ui/badge";
+import { fetchLatestSeriesValue, approximateCorpSpreadBaaMinusAaa } from "@/services/fred";
+import { useRealtime } from "@/components/providers/realtime-provider";
 
-const treasuryYieldData = [
-  { maturity: "1M", rate: 5.25 },
-  { maturity: "3M", rate: 5.35 },
-  { maturity: "6M", rate: 5.15 },
-  { maturity: "1Y", rate: 4.95 },
-  { maturity: "2Y", rate: 4.75 },
-  { maturity: "5Y", rate: 4.35 },
-  { maturity: "10Y", rate: 4.25 },
-  { maturity: "30Y", rate: 4.45 },
+const initialTreasuryYieldData = [
+  { maturity: "1M", rate: 0 },
+  { maturity: "3M", rate: 0 },
+  { maturity: "6M", rate: 0 },
+  { maturity: "1Y", rate: 0 },
+  { maturity: "2Y", rate: 0 },
+  { maturity: "5Y", rate: 0 },
+  { maturity: "10Y", rate: 0 },
+  { maturity: "30Y", rate: 0 },
 ];
 
 const spreadsData = [
@@ -42,6 +44,71 @@ const indicators = [
 ];
 
 export function RendaFixaEUA() {
+  const [dgs10, setDgs10] = useState<number | null>(null);
+  const [dgs2, setDgs2] = useState<number | null>(null);
+  const [dgs1y, setDgs1y] = useState<number | null>(null);
+  const [dgs6m, setDgs6m] = useState<number | null>(null);
+  const [dgs3m, setDgs3m] = useState<number | null>(null);
+  const [dgs1m, setDgs1m] = useState<number | null>(null);
+  const [dgs5, setDgs5] = useState<number | null>(null);
+  const [dgs30, setDgs30] = useState<number | null>(null);
+  const [curve, setCurve] = useState(initialTreasuryYieldData);
+  const [corpSpreadApprox, setCorpSpreadApprox] = useState<number | null>(null);
+  const { lastUpdate } = useRealtime();
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const [v1m, v3m, v6m, v1y, v2y, v5y, v10y, v30y] = await Promise.all([
+          fetchLatestSeriesValue("DGS1MO"),
+          fetchLatestSeriesValue("DGS3MO"),
+          fetchLatestSeriesValue("DGS6MO"),
+          fetchLatestSeriesValue("DGS1"),
+          fetchLatestSeriesValue("DGS2"),
+          fetchLatestSeriesValue("DGS5"),
+          fetchLatestSeriesValue("DGS10"),
+          fetchLatestSeriesValue("DGS30"),
+        ]);
+        setDgs1m(v1m);
+        setDgs3m(v3m);
+        setDgs6m(v6m);
+        setDgs1y(v1y);
+        setDgs2(v2y);
+        setDgs5(v5y);
+        setDgs10(v10y);
+        setDgs30(v30y);
+        setCurve([
+          { maturity: "1M", rate: v1m ?? 0 },
+          { maturity: "3M", rate: v3m ?? 0 },
+          { maturity: "6M", rate: v6m ?? 0 },
+          { maturity: "1Y", rate: v1y ?? 0 },
+          { maturity: "2Y", rate: v2y ?? 0 },
+          { maturity: "5Y", rate: v5y ?? 0 },
+          { maturity: "10Y", rate: v10y ?? 0 },
+          { maturity: "30Y", rate: v30y ?? 0 },
+        ]);
+        const approx = await approximateCorpSpreadBaaMinusAaa();
+        setCorpSpreadApprox(approx);
+      } catch (e) {}
+    })();
+  }, []);
+
+  // Realtime updates for 2Y, 10Y and term spread
+  useEffect(() => {
+    if (!lastUpdate?.macro) return;
+    const { dgs10: ten, dgs2: two } = lastUpdate.macro;
+    if (typeof ten === "number") setDgs10(ten);
+    if (typeof two === "number") setDgs2(two);
+    if (typeof ten === "number" && typeof two === "number") {
+      const updated = curve.map((p) =>
+        p.maturity === "10Y" ? { ...p, rate: ten } : p.maturity === "2Y" ? { ...p, rate: two } : p
+      );
+      setCurve(updated);
+    }
+  }, [lastUpdate]);
+
+  const termSpread = dgs10 != null && dgs2 != null ? (dgs10 - dgs2) * 100 : null;
+
   return (
     <div className="space-y-6">
       <div>
@@ -50,7 +117,28 @@ export function RendaFixaEUA() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        {indicators.map((indicator, index) => (
+        {[
+          {
+            title: "10Y Treasury",
+            value: dgs10 != null ? `${dgs10.toFixed(2)}%` : "--",
+            description: "Título 10 anos",
+          },
+          {
+            title: "2Y Treasury",
+            value: dgs2 != null ? `${dgs2.toFixed(2)}%` : "--",
+            description: "Título 2 anos",
+          },
+          {
+            title: "2Y-10Y Spread",
+            value: termSpread != null ? `${termSpread.toFixed(0)} bps` : "--",
+            description: termSpread != null && termSpread < 0 ? "Curva invertida" : "Curva normal",
+          },
+          {
+            title: "3M Treasury",
+            value: dgs3m != null ? `${dgs3m.toFixed(2)}%` : "--",
+            description: "Título 3 meses",
+          },
+        ].map((indicator, index) => (
           <Card key={index}>
             <CardContent className="p-6">
               <div className="text-center">
@@ -70,7 +158,7 @@ export function RendaFixaEUA() {
         </CardHeader>
         <CardContent>
           <ResponsiveContainer width="100%" height={300}>
-            <LineChart data={treasuryYieldData}>
+            <LineChart data={curve}>
               <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
               <XAxis dataKey="maturity" />
               <YAxis domain={["dataMin - 0.3", "dataMax + 0.3"]} />
@@ -140,6 +228,26 @@ export function RendaFixaEUA() {
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Spreads IG Aproximados</CardTitle>
+          <CardDescription>Proxy Baa - Aaa (FRED) em bps</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="p-4 bg-muted rounded-lg text-center">
+            <p className="text-sm text-muted-foreground">IG Corp Spread (aprox.)</p>
+            <p
+              className={`text-2xl font-semibold ${
+                corpSpreadApprox != null && corpSpreadApprox > 150
+                  ? "text-red-600"
+                  : "text-green-600"
+              }`}>
+              {corpSpreadApprox != null ? `${corpSpreadApprox} bps` : "--"}
+            </p>
+          </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
