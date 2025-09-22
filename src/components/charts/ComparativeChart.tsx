@@ -187,11 +187,12 @@ export function ComparativeChart() {
                   style={{ backgroundColor: currentPreset.colors[index] }}></div>
               </div>
               <div className="font-semibold">
-                {typeof getLatestValue(metric) === "number"
-                  ? getLatestValue(metric).toFixed(
-                      metric === "selic" ? 2 : metric.includes("Brl") ? 2 : 1
-                    )
-                  : getLatestValue(metric)}
+                {(() => {
+                  const value = getLatestValue(metric);
+                  return typeof value === "number"
+                    ? value.toFixed(metric === "selic" ? 2 : metric.includes("Brl") ? 2 : 1)
+                    : value;
+                })()}
                 {metric === "selic" && "%"}
               </div>
               <div

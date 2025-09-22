@@ -1,4 +1,5 @@
 import { apiCache } from "@/lib/cache";
+import { validateInput, alphaRequestSchema, sanitizeSymbol } from "@/lib/validation";
 
 export interface GlobalQuote {
   symbol: string;
@@ -6,20 +7,73 @@ export interface GlobalQuote {
   change: number;
 }
 
+export interface AlphaError extends Error {
+  code?: string;
+  retryable?: boolean;
+}
+
 export async function fetchGlobalQuote(symbol: string): Promise<GlobalQuote> {
-  const key = `alpha_quote_${symbol}`;
-  return apiCache.withCache(
-    key,
-    async () => {
-      const res = await fetch(
-        `/api/proxy/alpha?function=GLOBAL_QUOTE&symbol=${encodeURIComponent(symbol)}`
-      );
-      if (!res.ok) throw new Error("Alpha quote failed");
-      const json = await res.json();
-      return json.data as GlobalQuote;
-    },
-    15 * 1000
-  );
+  // Validate and sanitize input
+  const sanitizedSymbol = sanitizeSymbol(symbol);
+  const validation = validateInput(alphaRequestSchema, {
+    function: "GLOBAL_QUOTE",
+    symbol: sanitizedSymbol,
+  });
+
+  if (!validation.success) {
+    throw new Error(`Invalid symbol: ${validation.error}`);
+  }
+
+  const key = `alpha_quote_${sanitizedSymbol}`;
+
+  try {
+    return await apiCache.withCache(
+      key,
+      async () => {
+        const res = await fetch(
+          `/api/proxy/alpha?function=GLOBAL_QUOTE&symbol=${encodeURIComponent(sanitizedSymbol)}`,
+          {
+            headers: {
+              Accept: "application/json",
+            },
+            // Add timeout
+            signal: AbortSignal.timeout(10000), // 10 second timeout
+          }
+        );
+
+        if (!res.ok) {
+          const error = new Error(`Alpha Vantage API error: ${res.status}`) as AlphaError;
+          error.code = res.status.toString();
+          error.retryable = res.status >= 500;
+          throw error;
+        }
+
+        const json = await res.json();
+
+        if (json.error) {
+          const error = new Error(json.error) as AlphaError;
+          error.retryable = false;
+          throw error;
+        }
+
+        if (!json.data) {
+          throw new Error("No data received from Alpha Vantage");
+        }
+
+        return json.data as GlobalQuote;
+      },
+      15 * 1000
+    );
+  } catch (error) {
+    console.error(`Error fetching quote for ${sanitizedSymbol}:`, error);
+
+    // Return fallback data for better UX
+    return {
+      symbol: sanitizedSymbol,
+      price: 0,
+      change: 0,
+    };
+  }
 }
 
 export async function fetchRSI(symbol: string, interval: string = "daily"): Promise<number> {

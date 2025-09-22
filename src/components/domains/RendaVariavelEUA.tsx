@@ -43,6 +43,36 @@ import {
 import { fetchSymbolNews, NewsItem } from "@/services/news";
 import { PriceAlertManager } from "@/components/alerts/PriceAlertManager";
 import { WatchlistManager } from "@/components/watchlist/WatchlistManager";
+import {
+  fetchPopularStocks,
+  fetchStockData,
+  fetchStockTimeSeries,
+  fetchTechnicalIndicators,
+  StockData,
+  TechnicalIndicators,
+} from "@/services/stocks";
+
+// Popular stocks for the application
+const POPULAR_STOCKS = [
+  "AAPL",
+  "MSFT",
+  "GOOGL",
+  "AMZN",
+  "TSLA",
+  "META",
+  "NVDA",
+  "BRK.B",
+  "UNH",
+  "JNJ",
+  "V",
+  "PG",
+  "JPM",
+  "HD",
+  "MA",
+  "DIS",
+  "PYPL",
+  "ADBE",
+];
 
 const stocksData = [
   {
@@ -208,7 +238,8 @@ export function RendaVariavelEUA() {
   const [selectedStock, setSelectedStock] = useState("AAPL");
   const [filterSector, setFilterSector] = useState("All");
   const [searchTerm, setSearchTerm] = useState("");
-  const [priceData, setPriceData] = useState([] as any[]);
+  const [stocks, setStocks] = useState<StockData[]>([]);
+  const [loading, setLoading] = useState(true);
   const [quote, setQuote] = useState<{ price: number; change: number } | null>(null);
   const [rsi, setRsi] = useState<number | null>(null);
   const [sma50, setSma50] = useState<number | null>(null);
@@ -218,47 +249,60 @@ export function RendaVariavelEUA() {
   const [symbolNews, setSymbolNews] = useState<NewsItem[]>([]);
   const [tracked, setTracked] = useState("AAPL");
 
+  // Load popular stocks on component mount
+  useEffect(() => {
+    const loadStocks = async () => {
+      setLoading(true);
+      try {
+        const stocksData = await fetchPopularStocks();
+        setStocks(stocksData);
+      } catch (error) {
+        console.error("Error loading stocks:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadStocks();
+  }, []);
+
+  // Load technical data when selected stock changes
+  useEffect(() => {
+    if (selectedStock) {
+      loadTechnicals(selectedStock);
+    }
+  }, [selectedStock]);
+
   async function loadTechnicals(sym: string) {
-    const [q, r, s50, s200, m, ts, news] = await Promise.all([
-      fetchGlobalQuote(sym),
-      fetchRSI(sym),
-      fetchSMA(sym, 50),
-      fetchSMA(sym, 200),
-      fetchMACD(sym),
-      fetchTimeSeriesDaily(sym),
-      fetchSymbolNews(sym, 4),
-    ]);
-    setQuote({ price: q.price, change: q.change });
-    setRsi(r);
-    setSma50(s50.sma);
-    setSma200(s200.sma);
-    setMacd(m);
-    setTimeSeriesData(ts);
-    setSymbolNews(news);
+    try {
+      const [q, r, s50, s200, m, ts, news] = await Promise.all([
+        fetchGlobalQuote(sym),
+        fetchRSI(sym),
+        fetchSMA(sym, 50),
+        fetchSMA(sym, 200),
+        fetchMACD(sym),
+        fetchTimeSeriesDaily(sym),
+        fetchSymbolNews(sym, 4),
+      ]);
+      setQuote({ price: q.price, change: q.change });
+      setRsi(r);
+      setSma50(s50.sma);
+      setSma200(s200.sma);
+      setMacd(m);
+      setTimeSeriesData(ts);
+      setSymbolNews(news);
+    } catch (error) {
+      console.error("Error loading technical data:", error);
+    }
   }
 
   useEffect(() => {
     loadTechnicals(tracked).catch(() => {});
   }, [tracked]);
 
-  useEffect(() => {
-    const generatePriceData = () => {
-      const data: any[] = [];
-      let price = 189.25;
-      for (let i = 0; i < 30; i++) {
-        price += (Math.random() - 0.5) * 5;
-        data.push({
-          time: `${9 + Math.floor(i / 2)}:${(i % 2) * 30}0`,
-          price: price.toFixed(2),
-          volume: Math.floor(Math.random() * 2000000) + 500000,
-        });
-      }
-      return data;
-    };
-    setPriceData(generatePriceData());
-  }, [selectedStock]);
+  // Remove the old priceData generation since we're using real data now
 
-  const filteredStocks = stocksData.filter((stock) => {
+  const filteredStocks = stocks.filter((stock) => {
     const matchesSector = filterSector === "All" || stock.sector === filterSector;
     const matchesSearch =
       stock.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -282,11 +326,11 @@ export function RendaVariavelEUA() {
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="AAPL">AAPL</SelectItem>
-            <SelectItem value="MSFT">MSFT</SelectItem>
-            <SelectItem value="AMZN">AMZN</SelectItem>
-            <SelectItem value="GOOGL">GOOGL</SelectItem>
-            <SelectItem value="NVDA">NVDA</SelectItem>
+            {stocks.slice(0, 10).map((stock) => (
+              <SelectItem key={stock.symbol} value={stock.symbol}>
+                {stock.symbol}
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
       </div>
@@ -574,17 +618,17 @@ export function RendaVariavelEUA() {
                         </div>
                       </TableCell>
                       <TableCell>{stock.volume}</TableCell>
-                      <TableCell>{stock.pe.toFixed(1)}</TableCell>
+                      <TableCell>{stock.pe ? stock.pe.toFixed(1) : "--"}</TableCell>
                       <TableCell>
                         <div
                           className={`text-center px-2 py-1 rounded text-xs ${
-                            stock.rsi > 70
+                            stock.rsi && stock.rsi > 70
                               ? "bg-red-100 text-red-700 dark:bg-red-950/20"
-                              : stock.rsi < 30
+                              : stock.rsi && stock.rsi < 30
                               ? "bg-green-100 text-green-700 dark:bg-green-950/20"
                               : "bg-gray-100 text-gray-700 dark:bg-gray-800"
                           }`}>
-                          {stock.rsi.toFixed(1)}
+                          {stock.rsi ? stock.rsi.toFixed(1) : "--"}
                         </div>
                       </TableCell>
                       <TableCell>
@@ -596,7 +640,7 @@ export function RendaVariavelEUA() {
                               ? "secondary"
                               : "outline"
                           }>
-                          {stock.rating}
+                          {stock.rating || "N/A"}
                         </Badge>
                       </TableCell>
                       <TableCell>
@@ -623,7 +667,7 @@ export function RendaVariavelEUA() {
             </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={400}>
-                <LineChart data={priceData}>
+                <LineChart data={timeSeriesData}>
                   <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
                   <XAxis dataKey="time" />
                   <YAxis domain={["dataMin - 2", "dataMax + 2"]} />

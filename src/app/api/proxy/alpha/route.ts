@@ -1,115 +1,150 @@
 import { NextRequest, NextResponse } from "next/server";
 
 const ALPHA_URL = "https://www.alphavantage.co/query";
+const ALPHA_API_KEY = process.env.ALPHA_VANTAGE_API_KEY;
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const func = searchParams.get("function");
   const symbol = searchParams.get("symbol");
   const interval = searchParams.get("interval") || "daily";
-  const apiKey = process.env.ALPHA_VANTAGE_API_KEY;
+  const timePeriod = searchParams.get("time_period") || "14";
 
-  if (!apiKey || !func) {
-    // Mock fallback
-    if (func === "GLOBAL_QUOTE") {
-      return NextResponse.json({ data: { symbol: symbol || "AAPL", price: 195.5, change: 0.8 } });
-    }
-    if (func === "RSI") {
-      return NextResponse.json({ data: { symbol: symbol || "AAPL", rsi: 56.3 } });
-    }
-    if (func === "SMA") {
-      return NextResponse.json({ data: { symbol: symbol || "AAPL", period: 50, sma: 188.2 } });
-    }
-    if (func === "MACD") {
-      return NextResponse.json({
-        data: { symbol: symbol || "AAPL", macd: 0.45, signal: 0.4, hist: 0.05 },
-      });
-    }
-    if (func === "TIME_SERIES_DAILY") {
-      // Mock daily time series data
-      const basePrice = 195.5;
-      const data: any = {};
-      for (let i = 30; i >= 0; i--) {
-        const date = new Date();
-        date.setDate(date.getDate() - i);
-        const dateStr = date.toISOString().split("T")[0];
-        const variation = (Math.random() - 0.5) * 10;
-        const open = basePrice + variation;
-        const close = open + (Math.random() - 0.5) * 5;
-        const high = Math.max(open, close) + Math.random() * 2;
-        const low = Math.min(open, close) - Math.random() * 2;
-        const volume = Math.floor(Math.random() * 50000000) + 20000000;
+  if (!func || !symbol) {
+    return NextResponse.json({ error: "Missing required parameters" }, { status: 400 });
+  }
 
-        data[dateStr] = {
-          "1. open": open.toFixed(2),
-          "2. high": high.toFixed(2),
-          "3. low": low.toFixed(2),
-          "4. close": close.toFixed(2),
-          "5. volume": volume.toString(),
-        };
-      }
-      return NextResponse.json({
-        data: {
-          "Time Series (Daily)": data,
-        },
-      });
-    }
-    return NextResponse.json({ error: "Missing API key or function" }, { status: 400 });
+  if (!ALPHA_API_KEY) {
+    // Fallback to mock data if no API key
+    return NextResponse.json({ data: getMockAlphaData(func, symbol, interval, timePeriod) });
   }
 
   try {
-    if (func === "GLOBAL_QUOTE") {
-      const url = `${ALPHA_URL}?function=GLOBAL_QUOTE&symbol=${symbol}&apikey=${apiKey}`;
-      const res = await fetch(url, { next: { revalidate: 15 } });
-      if (!res.ok) return NextResponse.json({ error: "Upstream" }, { status: res.status });
-      const json = await res.json();
-      const q = json?.["Global Quote"] || {};
-      const data = {
-        symbol,
-        price: parseFloat(q["05. price"] || "0"),
-        change: parseFloat(q["10. change percent"]?.replace("%", "") || "0"),
-      };
-      return NextResponse.json({ data });
+    const url = new URL(ALPHA_URL);
+    url.searchParams.set("function", func);
+    url.searchParams.set("symbol", symbol);
+    url.searchParams.set("apikey", ALPHA_API_KEY);
+
+    if (func === "TIME_SERIES_DAILY") {
+      url.searchParams.set("outputsize", "compact");
+    } else if (func === "RSI") {
+      url.searchParams.set("interval", interval);
+      url.searchParams.set("time_period", timePeriod);
+      url.searchParams.set("series_type", "close");
+    } else if (func === "SMA") {
+      url.searchParams.set("interval", interval);
+      url.searchParams.set("time_period", timePeriod);
+      url.searchParams.set("series_type", "close");
+    } else if (func === "MACD") {
+      url.searchParams.set("interval", interval);
+      url.searchParams.set("series_type", "close");
     }
 
-    if (func === "RSI") {
-      const url = `${ALPHA_URL}?function=RSI&symbol=${symbol}&interval=${interval}&time_period=14&series_type=close&apikey=${apiKey}`;
-      const res = await fetch(url, { next: { revalidate: 60 } });
-      if (!res.ok) return NextResponse.json({ error: "Upstream" }, { status: res.status });
-      const json = await res.json();
-      const series = json?.["Technical Analysis: RSI"] || {};
-      const lastKey = Object.keys(series)[0];
-      const rsi = lastKey ? parseFloat(series[lastKey]?.RSI || "0") : 0;
-      return NextResponse.json({ data: { symbol, rsi } });
+    const response = await fetch(url.toString(), {
+      next: { revalidate: 300 }, // Cache for 5 minutes
+    });
+
+    if (!response.ok) {
+      throw new Error(`Alpha Vantage API error: ${response.status}`);
     }
 
-    if (func === "SMA") {
-      const period = searchParams.get("time_period") || "50";
-      const url = `${ALPHA_URL}?function=SMA&symbol=${symbol}&interval=${interval}&time_period=${period}&series_type=close&apikey=${apiKey}`;
-      const res = await fetch(url, { next: { revalidate: 60 } });
-      if (!res.ok) return NextResponse.json({ error: "Upstream" }, { status: res.status });
-      const json = await res.json();
-      const series = json?.["Technical Analysis: SMA"] || {};
-      const lastKey = Object.keys(series)[0];
-      const sma = lastKey ? parseFloat(series[lastKey]?.SMA || "0") : 0;
-      return NextResponse.json({ data: { symbol, period: Number(period), sma } });
+    const data = await response.json();
+
+    // Check for API limit exceeded
+    if (data["Note"]) {
+      console.warn("Alpha Vantage API limit exceeded, using mock data");
+      return NextResponse.json({ data: getMockAlphaData(func, symbol, interval, timePeriod) });
     }
 
-    if (func === "MACD") {
-      const url = `${ALPHA_URL}?function=MACD&symbol=${symbol}&interval=${interval}&series_type=close&apikey=${apiKey}`;
-      const res = await fetch(url, { next: { revalidate: 60 } });
-      if (!res.ok) return NextResponse.json({ error: "Upstream" }, { status: res.status });
-      const json = await res.json();
-      const series = json?.["Technical Analysis: MACD"] || {};
-      const lastKey = Object.keys(series)[0];
-      const macd = lastKey ? parseFloat(series[lastKey]?.MACD || "0") : 0;
-      const signal = lastKey ? parseFloat(series[lastKey]?.MACD_Signal || "0") : 0;
-      const hist = lastKey ? parseFloat(series[lastKey]?.MACD_Hist || "0") : 0;
-      return NextResponse.json({ data: { symbol, macd, signal, hist } });
+    if (data["Error Message"]) {
+      throw new Error(data["Error Message"]);
     }
 
-    return NextResponse.json({ error: "Unsupported function" }, { status: 400 });
-  } catch (e) {
-    return NextResponse.json({ error: "Failed" }, { status: 500 });
+    return NextResponse.json({ data });
+  } catch (error) {
+    console.error("Alpha Vantage API error:", error);
+    // Fallback to mock data on error
+    return NextResponse.json({ data: getMockAlphaData(func, symbol, interval, timePeriod) });
   }
+}
+
+function getMockAlphaData(func: string, symbol: string, interval: string, timePeriod: string) {
+  const basePrice = 195.5;
+
+  if (func === "GLOBAL_QUOTE") {
+    return {
+      "Global Quote": {
+        "01. symbol": symbol,
+        "02. open": (basePrice + (Math.random() - 0.5) * 2).toFixed(2),
+        "03. high": (basePrice + Math.random() * 3).toFixed(2),
+        "04. low": (basePrice - Math.random() * 3).toFixed(2),
+        "05. price": basePrice.toFixed(2),
+        "06. volume": Math.floor(Math.random() * 50000000 + 20000000).toString(),
+        "07. latest trading day": new Date().toISOString().split("T")[0],
+        "08. previous close": (basePrice - (Math.random() - 0.5) * 2).toFixed(2),
+        "09. change": ((Math.random() - 0.5) * 4).toFixed(2),
+        "10. change percent": `${((Math.random() - 0.5) * 4).toFixed(2)}%`,
+      },
+    };
+  }
+
+  if (func === "RSI") {
+    return {
+      "Technical Analysis: RSI": {
+        [new Date().toISOString().split("T")[0]]: {
+          RSI: (50 + (Math.random() - 0.5) * 40).toFixed(2),
+        },
+      },
+    };
+  }
+
+  if (func === "SMA") {
+    return {
+      "Technical Analysis: SMA": {
+        [new Date().toISOString().split("T")[0]]: {
+          SMA: (basePrice + (Math.random() - 0.5) * 10).toFixed(2),
+        },
+      },
+    };
+  }
+
+  if (func === "MACD") {
+    return {
+      "Technical Analysis: MACD": {
+        [new Date().toISOString().split("T")[0]]: {
+          MACD: ((Math.random() - 0.5) * 2).toFixed(4),
+          MACD_Signal: ((Math.random() - 0.5) * 2).toFixed(4),
+          MACD_Hist: ((Math.random() - 0.5) * 0.5).toFixed(4),
+        },
+      },
+    };
+  }
+
+  if (func === "TIME_SERIES_DAILY") {
+    const data: Record<string, any> = {};
+    for (let i = 0; i < 30; i++) {
+      const date = new Date();
+      date.setDate(date.getDate() - i);
+      const dateStr = date.toISOString().split("T")[0];
+      const variation = (Math.random() - 0.5) * 10;
+      const open = basePrice + variation;
+      const close = basePrice + variation + (Math.random() - 0.5) * 4;
+      const high = Math.max(open, close) + Math.random() * 2;
+      const low = Math.min(open, close) - Math.random() * 2;
+      const volume = Math.floor(Math.random() * 50000000) + 20000000;
+
+      data[dateStr] = {
+        "1. open": open.toFixed(2),
+        "2. high": high.toFixed(2),
+        "3. low": low.toFixed(2),
+        "4. close": close.toFixed(2),
+        "5. volume": volume.toString(),
+      };
+    }
+    return {
+      "Time Series (Daily)": data,
+    };
+  }
+
+  return { error: "Unknown function" };
 }

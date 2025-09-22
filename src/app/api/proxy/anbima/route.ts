@@ -1,189 +1,138 @@
 import { NextRequest, NextResponse } from "next/server";
 
 export async function GET(request: NextRequest) {
-  const { searchParams } = new URL(request.url);
-  const endpoint = searchParams.get("endpoint");
-
-  if (!endpoint) {
-    return NextResponse.json({ error: "Missing endpoint parameter" }, { status: 400 });
-  }
-
   try {
-    // ANBIMA doesn't have a public API, so we'll simulate data for now
-    // In production, this would integrate with ANBIMA's official data sources
-    // or use authorized data providers
+    const { searchParams } = new URL(request.url);
+    const endpoint = searchParams.get("endpoint");
+    const rating = searchParams.get("rating");
+    const sector = searchParams.get("sector");
 
-    let mockData;
-
-    switch (endpoint) {
-      case "/debentures":
-        const rating = searchParams.get("rating");
-        mockData = generateMockDebentures(rating);
-        break;
-      case "/credit-curves":
-        const curveRating = searchParams.get("rating");
-        const sector = searchParams.get("sector");
-        mockData = generateMockCreditCurves(curveRating, sector);
-        break;
-      case "/cri-cra-lfs":
-        mockData = generateMockCriCraLfs();
-        break;
-      default:
-        return NextResponse.json({ error: "Unknown endpoint" }, { status: 404 });
+    if (!endpoint) {
+      return NextResponse.json({ error: "Endpoint parameter is required" }, { status: 400 });
     }
 
-    return NextResponse.json({ data: mockData });
+    // ANBIMA API base URL
+    const baseUrl = "https://api.anbima.com.br";
+    let url = `${baseUrl}${endpoint}`;
+
+    // Add query parameters if provided
+    const params = new URLSearchParams();
+    if (rating) params.append("rating", rating);
+    if (sector) params.append("sector", sector);
+
+    if (params.toString()) {
+      url += `?${params.toString()}`;
+    }
+
+    // For development, return mock data
+    if (process.env.NODE_ENV === "development" || process.env.NEXT_PUBLIC_USE_MOCKS === "true") {
+      const mockData = getMockAnbimaData(endpoint);
+      return NextResponse.json({ data: mockData });
+    }
+
+    // Make request to ANBIMA API
+    const response = await fetch(url, {
+      headers: {
+        Accept: "application/json",
+        "User-Agent": "AdvisorSol/1.0",
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`ANBIMA API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return NextResponse.json({ data });
   } catch (error) {
     console.error("ANBIMA proxy error:", error);
-    return NextResponse.json({ error: "Failed to fetch ANBIMA data" }, { status: 500 });
+
+    // Return mock data on error
+    const { searchParams } = new URL(request.url);
+    const endpoint = searchParams.get("endpoint");
+    const mockData = getMockAnbimaData(endpoint || "");
+
+    return NextResponse.json({ data: mockData });
   }
 }
 
-function generateMockDebentures(rating?: string | null) {
-  const debentures = [
-    {
-      issuer: "Petrobras",
-      rating: "BBB",
-      maturity: "2029-05-15",
-      indexer: "IPCA+",
-      spread: 275,
-      yield: 13.85,
-      pu: 1024.5,
-      bid: 13.8,
-      ask: 13.9,
-      sector: "Energia",
-      updated_at: new Date().toISOString(),
-    },
-    {
-      issuer: "Vale",
-      rating: "A",
-      maturity: "2030-12-01",
-      indexer: "IPCA+",
-      spread: 205,
-      yield: 12.95,
-      pu: 1018.2,
-      bid: 12.9,
-      ask: 13.0,
-      sector: "Mineração",
-      updated_at: new Date().toISOString(),
-    },
-    {
-      issuer: "Itaú Unibanco",
-      rating: "AA",
-      maturity: "2028-08-20",
-      indexer: "IPCA+",
-      spread: 145,
-      yield: 12.15,
-      pu: 1012.8,
-      bid: 12.1,
-      ask: 12.2,
-      sector: "Financeiro",
-      updated_at: new Date().toISOString(),
-    },
-    {
-      issuer: "Bradesco",
-      rating: "AA",
-      maturity: "2027-11-10",
-      indexer: "IPCA+",
-      spread: 135,
-      yield: 11.95,
-      pu: 1009.5,
-      bid: 11.9,
-      ask: 12.0,
-      sector: "Financeiro",
-      updated_at: new Date().toISOString(),
-    },
-    {
-      issuer: "Ambev",
-      rating: "AAA",
-      maturity: "2026-03-25",
-      indexer: "IPCA+",
-      spread: 75,
-      yield: 11.25,
-      pu: 1005.2,
-      bid: 11.2,
-      ask: 11.3,
-      sector: "Consumo",
-      updated_at: new Date().toISOString(),
-    },
-  ];
+function getMockAnbimaData(endpoint: string) {
+  const today = new Date().toISOString().split("T")[0];
 
-  return rating ? debentures.filter((d) => d.rating === rating) : debentures;
-}
+  switch (endpoint) {
+    case "/debentures":
+      return [
+        {
+          codigo: "DEB001",
+          emissor: "Empresa ABC S.A.",
+          indexador: "IPCA+",
+          du: 36,
+          duration: 2.8,
+          spread_soberano: 150,
+          rating: "AA",
+          setor: "Energia",
+          taxa_bid: 5.25,
+          taxa_ask: 5.15,
+          pu: 98.5,
+          updated_at: today,
+        },
+        {
+          codigo: "DEB002",
+          emissor: "Corporação XYZ Ltda.",
+          indexador: "CDI+",
+          du: 24,
+          duration: 2.1,
+          spread_soberano: 200,
+          rating: "A",
+          setor: "Financeiro",
+          taxa_bid: 6.1,
+          taxa_ask: 6.0,
+          pu: 97.25,
+          updated_at: today,
+        },
+        {
+          codigo: "DEB003",
+          emissor: "Indústria DEF S.A.",
+          indexador: "IPCA+",
+          du: 60,
+          duration: 4.2,
+          spread_soberano: 180,
+          rating: "AA-",
+          setor: "Industrial",
+          taxa_bid: 5.45,
+          taxa_ask: 5.35,
+          pu: 96.8,
+          updated_at: today,
+        },
+      ];
 
-function generateMockCreditCurves(rating?: string | null, sector?: string | null) {
-  const curves = {
-    AAA: [
-      { vertex: "1Y", rate: 10.85, spread: 35, duration: 0.92 },
-      { vertex: "2Y", rate: 11.12, spread: 47, duration: 1.81 },
-      { vertex: "3Y", rate: 11.28, spread: 53, duration: 2.65 },
-      { vertex: "5Y", rate: 11.45, spread: 65, duration: 4.18 },
-      { vertex: "10Y", rate: 11.78, spread: 88, duration: 7.42 },
-    ],
-    AA: [
-      { vertex: "1Y", rate: 11.15, spread: 65, duration: 0.92 },
-      { vertex: "2Y", rate: 11.45, spread: 80, duration: 1.81 },
-      { vertex: "3Y", rate: 11.65, spread: 90, duration: 2.65 },
-      { vertex: "5Y", rate: 11.95, spread: 115, duration: 4.18 },
-      { vertex: "10Y", rate: 12.35, spread: 145, duration: 7.42 },
-    ],
-    A: [
-      { vertex: "1Y", rate: 11.45, spread: 95, duration: 0.92 },
-      { vertex: "2Y", rate: 11.78, spread: 113, duration: 1.81 },
-      { vertex: "3Y", rate: 12.05, spread: 130, duration: 2.65 },
-      { vertex: "5Y", rate: 12.45, spread: 165, duration: 4.18 },
-      { vertex: "10Y", rate: 12.95, spread: 205, duration: 7.42 },
-    ],
-    BBB: [
-      { vertex: "1Y", rate: 12.25, spread: 175, duration: 0.92 },
-      { vertex: "2Y", rate: 12.65, spread: 200, duration: 1.81 },
-      { vertex: "3Y", rate: 13.05, spread: 230, duration: 2.65 },
-      { vertex: "5Y", rate: 13.55, spread: 275, duration: 4.18 },
-      { vertex: "10Y", rate: 14.15, spread: 325, duration: 7.42 },
-    ],
-  };
+    case "/credit-curves":
+      return [
+        {
+          rating: "AA",
+          setor: "Energia",
+          curva: [
+            { prazo: 1, spread: 120 },
+            { prazo: 2, spread: 135 },
+            { prazo: 3, spread: 150 },
+            { prazo: 5, spread: 180 },
+            { prazo: 10, spread: 220 },
+          ],
+        },
+        {
+          rating: "A",
+          setor: "Financeiro",
+          curva: [
+            { prazo: 1, spread: 180 },
+            { prazo: 2, spread: 200 },
+            { prazo: 3, spread: 220 },
+            { prazo: 5, spread: 260 },
+            { prazo: 10, spread: 320 },
+          ],
+        },
+      ];
 
-  if (rating && curves[rating as keyof typeof curves]) {
-    return curves[rating as keyof typeof curves];
+    default:
+      return [];
   }
-
-  return curves.AAA; // Default to AAA
-}
-
-function generateMockCriCraLfs() {
-  return [
-    {
-      issuer: "Brookfield",
-      type: "CRI",
-      rating: "AA",
-      maturity: "2028-06-15",
-      indexer: "IPCA+",
-      spread: 185,
-      yield: 12.75,
-      sector: "Real Estate",
-      updated_at: new Date().toISOString(),
-    },
-    {
-      issuer: "Votorantim",
-      type: "CRA",
-      rating: "A",
-      maturity: "2027-09-30",
-      indexer: "IPCA+",
-      spread: 220,
-      yield: 13.1,
-      sector: "Agronegócio",
-      updated_at: new Date().toISOString(),
-    },
-    {
-      issuer: "Banco do Brasil",
-      type: "LFS",
-      rating: "AA",
-      maturity: "2026-12-20",
-      indexer: "IPCA+",
-      spread: 165,
-      yield: 12.55,
-      sector: "Financeiro",
-      updated_at: new Date().toISOString(),
-    },
-  ];
 }

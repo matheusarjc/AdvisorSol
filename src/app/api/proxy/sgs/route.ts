@@ -1,15 +1,60 @@
 import { NextResponse } from "next/server";
 
-// Mock SGS data for development - in production you'd use the real BCB API
+const SGS_BASE_URL = "https://api.bcb.gov.br/dados/serie/bcdata.sgs";
+
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const serie = searchParams.get("serie");
+  const dataInicial = searchParams.get("dataInicial");
+  const dataFinal = searchParams.get("dataFinal");
 
-  if (!serie) return NextResponse.json({ error: "Missing serie" }, { status: 400 });
+  if (!serie) {
+    return NextResponse.json({ error: "Missing serie parameter" }, { status: 400 });
+  }
 
-  // Return mock data based on series
-  const mockData = getMockSGSData(serie);
-  return NextResponse.json({ data: mockData });
+  try {
+    // Build URL for BCB SGS API
+    const url = new URL(`${SGS_BASE_URL}.${serie}/dados`);
+
+    if (dataInicial) {
+      url.searchParams.set("dataInicial", dataInicial);
+    }
+    if (dataFinal) {
+      url.searchParams.set("dataFinal", dataFinal);
+    }
+
+    // Add format parameter
+    url.searchParams.set("formato", "json");
+
+    const response = await fetch(url.toString(), {
+      next: { revalidate: 300 }, // Cache for 5 minutes
+      headers: {
+        Accept: "application/json",
+        "User-Agent": "AdvisorSol/1.0",
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`SGS API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+
+    // Ensure data is an array
+    const dataArray = Array.isArray(data) ? data : [];
+
+    return NextResponse.json({
+      data: dataArray.map((item: any) => ({
+        data: item.data,
+        valor: item.valor,
+      })),
+    });
+  } catch (error) {
+    console.error("SGS API error:", error);
+    // Fallback to mock data on error
+    const mockData = getMockSGSData(serie);
+    return NextResponse.json({ data: mockData });
+  }
 }
 
 function getMockSGSData(serie: string) {
@@ -18,18 +63,18 @@ function getMockSGSData(serie: string) {
     .toString()
     .padStart(2, "0")}/${today.getFullYear()}`;
 
-  switch (serie) {
-    case "11": // Selic Meta
-      return [{ data: dataStr, valor: "11.25" }];
-    case "433": // IPCA
-      return [{ data: dataStr, valor: "4.23" }];
-    case "4389": // CDI
-      return [{ data: dataStr, valor: "11.15" }];
-    case "1178": // IPCA-15
-      return [{ data: dataStr, valor: "4.18" }];
-    case "4390": // IGPM
-      return [{ data: dataStr, valor: "5.12" }];
-    default:
-      return [{ data: dataStr, valor: "0.0" }];
-  }
+  const mockValues: Record<string, string> = {
+    "11": "11.25", // Selic
+    "433": "4.23", // IPCA
+    "4389": "11.15", // CDI
+    "12": "4.18", // IPCA-15
+    "189": "4.50", // IGP-M
+  };
+
+  return [
+    {
+      data: dataStr,
+      valor: mockValues[serie] || "0.0",
+    },
+  ];
 }
