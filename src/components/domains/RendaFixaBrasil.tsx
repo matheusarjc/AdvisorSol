@@ -99,6 +99,12 @@ export function RendaFixaBrasil() {
   const { lastUpdate: realtimeData, connected: realtimeLoading } = useRealtime();
   const [yieldCurveData, setYieldCurveData] = useState(initialYieldCurveData);
   const [historicalRates, setHistoricalRates] = useState(initialHistoricalRates);
+  const [tsDi, setTsDi] = useState<number | null>(null);
+  const [tsSgs, setTsSgs] = useState<number | null>(null);
+  const [tsTesouro, setTsTesouro] = useState<number | null>(null);
+  const [tsSidra, setTsSidra] = useState<number | null>(null);
+  const [tsDebentures, setTsDebentures] = useState<number | null>(null);
+  const [health, setHealth] = useState<"ok" | "degraded" | "fail" | null>(null);
   const [selectedScenario, setSelectedScenario] = useState("Base");
   const [activeTab, setActiveTab] = useState("overview");
   const [simulatorValues, setSimulatorValues] = useState({
@@ -145,12 +151,24 @@ export function RendaFixaBrasil() {
     return diffBps;
   }, [tdTitulos]);
 
+  const timeAgo = (ts?: number | null) => {
+    if (!ts) return "--";
+    const diff = Math.max(0, Date.now() - ts);
+    const s = Math.floor(diff / 1000);
+    if (s < 60) return `${s}s`;
+    const m = Math.floor(s / 60);
+    if (m < 60) return `${m}m`;
+    const h = Math.floor(m / 60);
+    return `${h}h`;
+  };
+
   useEffect(() => {
     const loadData = async () => {
       try {
         // Fetch live debentures from ANBIMA
         const debentures = await fetchDebentures();
         setLiveDebentures(debentures);
+        setTsDebentures(Date.now());
 
         // Fetch latest Selic and IPCA from SGS
         const latestSelic = await fetchLatestSGSValue(11); // Selic meta
@@ -158,13 +176,16 @@ export function RendaFixaBrasil() {
 
         if (latestSelic) setSelic(latestSelic);
         if (latestIpca) setIpca(latestIpca);
+        setTsSgs(Date.now());
 
         // Fetch SIDRA IPCA subitems
         const sidra = await fetchSidraIpcaSubitems();
         setIpcaSubitems(sidra.subitens.slice(0, 4));
+        setTsSidra(Date.now());
 
         const titulos = await fetchTesouroTitulos();
         setTdTitulos(titulos.slice(0, 5));
+        setTsTesouro(Date.now());
 
         // Curva DI (ANBIMA)
         try {
@@ -178,6 +199,7 @@ export function RendaFixaBrasil() {
                 yesterday: p.yesterday != null ? Number(p.yesterday) : undefined,
               }))
             );
+            setTsDi(Date.now());
           }
         } catch {}
 
@@ -228,6 +250,22 @@ export function RendaFixaBrasil() {
     };
 
     loadData();
+  }, []);
+
+  useEffect(() => {
+    let timer: any;
+    const fetchHealth = async () => {
+      try {
+        const res = await fetch("/api/data/health", { cache: "no-store" });
+        if (res.ok) {
+          const j = await res.json();
+          setHealth(j.overall as any);
+        }
+      } catch {}
+    };
+    fetchHealth();
+    timer = setInterval(fetchHealth, 60000);
+    return () => clearInterval(timer);
   }, []);
 
   useEffect(() => {
@@ -309,6 +347,15 @@ export function RendaFixaBrasil() {
           <Badge variant="outline" className={!realtimeLoading ? "animate-pulse" : ""}>
             ● {!realtimeLoading ? "Conectando..." : "Ao vivo"}
           </Badge>
+          {health && (
+            <Badge
+              variant={
+                health === "ok" ? "secondary" : health === "degraded" ? "outline" : "destructive"
+              }
+              className="text-xs">
+              Health: {health}
+            </Badge>
+          )}
           <Button variant="outline" size="sm" onClick={exportScenarioReport}>
             <Download className="h-4 w-4 mr-2" />
             Exportar Cenários
@@ -375,8 +422,17 @@ export function RendaFixaBrasil() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <Card>
               <CardHeader>
-                <CardTitle>Curva de Juros DI</CardTitle>
-                <CardDescription>Taxa de juros por vencimento com variação diária</CardDescription>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle>Curva de Juros DI</CardTitle>
+                    <CardDescription>
+                      Taxa de juros por vencimento com variação diária
+                    </CardDescription>
+                  </div>
+                  <Badge variant="outline" className="text-xs">{`Atualizado há ${timeAgo(
+                    tsDi
+                  )}`}</Badge>
+                </div>
               </CardHeader>
               <CardContent>
                 <ResponsiveContainer width="100%" height={300}>
@@ -409,10 +465,13 @@ export function RendaFixaBrasil() {
 
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center space-x-2">
-                  <Target className="h-5 w-5" />
-                  <span>Simulação de Cenários</span>
-                </CardTitle>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="flex items-center space-x-2">
+                    <Target className="h-5 w-5" />
+                    <span>Simulação de Cenários</span>
+                  </CardTitle>
+                  <Badge variant="outline" className="text-xs">{`SGS ${timeAgo(tsSgs)}`}</Badge>
+                </div>
                 <CardDescription>Impacto de diferentes cenários macro nos yields</CardDescription>
               </CardHeader>
               <CardContent>
@@ -521,8 +580,13 @@ export function RendaFixaBrasil() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Evolução das Taxas</CardTitle>
-              <CardDescription>Selic, CDI e IPCA - últimos 6 meses</CardDescription>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle>Evolução das Taxas</CardTitle>
+                  <CardDescription>Selic, CDI e IPCA - últimos 6 meses</CardDescription>
+                </div>
+                <Badge variant="outline" className="text-xs">{`SGS ${timeAgo(tsSgs)}`}</Badge>
+              </div>
             </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={250}>
@@ -563,10 +627,17 @@ export function RendaFixaBrasil() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Debêntures - Análise de Crédito</CardTitle>
-              <CardDescription>
-                Títulos corporativos com métricas de risco e alertas
-              </CardDescription>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle>Debêntures - Análise de Crédito</CardTitle>
+                  <CardDescription>
+                    Títulos corporativos com métricas de risco e alertas
+                  </CardDescription>
+                </div>
+                <Badge variant="outline" className="text-xs">{`ANBIMA ${timeAgo(
+                  tsDebentures
+                )}`}</Badge>
+              </div>
             </CardHeader>
             <CardContent>
               <Table>
@@ -754,10 +825,15 @@ export function RendaFixaBrasil() {
 
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center space-x-2">
-                <span>IPCA - Principais Subitens</span>
-              </CardTitle>
-              <CardDescription>Peso no índice e variações</CardDescription>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center space-x-2">
+                    <span>IPCA - Principais Subitens</span>
+                  </CardTitle>
+                  <CardDescription>Peso no índice e variações</CardDescription>
+                </div>
+                <Badge variant="outline" className="text-xs">{`SIDRA ${timeAgo(tsSidra)}`}</Badge>
+              </div>
             </CardHeader>
             <CardContent>
               <Table>
@@ -787,8 +863,13 @@ export function RendaFixaBrasil() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Tesouro Direto - Indicativos</CardTitle>
-              <CardDescription>Taxas e preços (compra/venda)</CardDescription>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle>Tesouro Direto - Indicativos</CardTitle>
+                  <CardDescription>Taxas e preços (compra/venda)</CardDescription>
+                </div>
+                <Badge variant="outline" className="text-xs">{`TD ${timeAgo(tsTesouro)}`}</Badge>
+              </div>
             </CardHeader>
             <CardContent>
               <Table>

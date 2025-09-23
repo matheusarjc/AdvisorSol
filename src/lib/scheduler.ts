@@ -150,4 +150,27 @@ export function setupPreIngestionJobs() {
       await Promise.all([fetchDebentures(), fetchCreditCurves()]);
     },
   });
+
+  // Stocks data warm-up (hourly)
+  scheduler.addJob({
+    id: "stocks-refresh",
+    name: "Stocks Data Warm-Up",
+    schedule: "0 */1 * * *", // hourly
+    enabled: true,
+    handler: async () => {
+      try {
+        const symbols = ["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA", "META"];
+        const base = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+        await Promise.all(
+          symbols.flatMap((sym) => [
+            fetch(`${base}/api/data/stocks?type=quote&symbol=${sym}`),
+            fetch(`${base}/api/data/stocks?type=indicators&symbol=${sym}`),
+            fetch(`${base}/api/data/stocks?type=timeseries&symbol=${sym}`),
+          ])
+        );
+      } catch (e) {
+        console.error("Stocks warm-up failed", e);
+      }
+    },
+  });
 }

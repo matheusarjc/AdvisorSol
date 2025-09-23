@@ -1,0 +1,14 @@
+{
+  "name": "advisorsol-scraper",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node src/index.js",
+    "start": "node dist/index.js",
+    "build": "echo 'Build step placeholder'"
+  },
+  "dependencies": {
+    "playwright": "^1.47.0"
+  }
+}

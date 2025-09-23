@@ -14,13 +14,14 @@ export async function fetchSidraIpcaSubitems(
   const params = new URLSearchParams();
   if (month) params.set("month", month);
   const key = `sidra_ipca_${month || "latest"}`;
-  return apiCache.withCache(
+  return apiCache.withFallback(
     key,
     async () => {
-      const res = await fetch(`/api/proxy/sidra?${params.toString()}`);
+      let res = await fetch(`/api/data/sidra-ipca?${params.toString()}`);
+      if (!res.ok) res = await fetch(`/api/proxy/sidra?${params.toString()}`);
       if (!res.ok) throw new Error("SIDRA fetch failed");
       const json = await res.json();
-      return json.data as { referencia: string; subitens: SidraSubitem[] };
+      return (json.data ?? json) as { referencia: string; subitens: SidraSubitem[] };
     },
     10 * 60 * 1000
   );

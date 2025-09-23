@@ -60,6 +60,16 @@ function getMockAnbimaData(endpoint: string) {
   const today = new Date().toISOString().split("T")[0];
 
   switch (endpoint) {
+    case "/di-curve":
+      return [
+        { maturity: "1M", rate: 11.25, yesterday: 11.3 },
+        { maturity: "3M", rate: 11.35, yesterday: 11.4 },
+        { maturity: "6M", rate: 11.45, yesterday: 11.5 },
+        { maturity: "1A", rate: 11.65, yesterday: 11.7 },
+        { maturity: "2A", rate: 11.85, yesterday: 11.9 },
+        { maturity: "5A", rate: 12.15, yesterday: 12.2 },
+        { maturity: "10A", rate: 12.45, yesterday: 12.5 },
+      ];
     case "/debentures":
       return [
         {

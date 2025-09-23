@@ -23,6 +23,11 @@ class SimpleCache {
     return item.data;
   }
 
+  getRaw(key: string): { data: any; timestamp: number; ttl: number } | null {
+    const item = this.cache.get(key);
+    return item || null;
+  }
+
   clear() {
     this.cache.clear();
   }
@@ -37,6 +42,21 @@ class SimpleCache {
     const result = await fn();
     this.set(key, result, ttlMs);
     return result;
+  }
+
+  // Tenta executar fn, se falhar retorna último valor válido do cache (se houver)
+  async withFallback<T>(key: string, fn: () => Promise<T>, ttlMs?: number): Promise<T> {
+    try {
+      const result = await fn();
+      this.set(key, result, ttlMs);
+      return result;
+    } catch (err) {
+      const raw = this.getRaw(key);
+      if (raw) {
+        return raw.data as T;
+      }
+      throw err;
+    }
   }
 }
 

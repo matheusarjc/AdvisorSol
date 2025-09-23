@@ -69,26 +69,59 @@ const POPULAR_STOCKS = [
   "QCOM",
 ];
 
+async function fetchInternalStocks(type: string, symbol: string) {
+  const url = `/api/data/stocks?type=${encodeURIComponent(type)}&symbol=${encodeURIComponent(
+    symbol
+  )}`;
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) throw new Error("internal stocks endpoint failed");
+  const json = await res.json();
+  return json.data;
+}
+
 export async function fetchStockData(symbol: string): Promise<StockData | null> {
   const cacheKey = `stock_data_${symbol}`;
 
   try {
-    return await apiCache.withCache(
+    return await apiCache.withFallback(
       cacheKey,
       async () => {
-        const [quote, rsi, sma50, sma200, macd] = await Promise.allSettled([
-          fetchGlobalQuote(symbol),
-          fetchRSI(symbol),
-          fetchSMA(symbol, 50),
-          fetchSMA(symbol, 200),
-          fetchMACD(symbol),
-        ]);
+        // Try internal API first (quote + indicators)
+        let quoteData: any | null = null;
+        let indicatorsData: any | null = null;
+        try {
+          [quoteData, indicatorsData] = await Promise.all([
+            fetchInternalStocks("quote", symbol),
+            fetchInternalStocks("indicators", symbol),
+          ]);
+        } catch {
+          // Fallback to Alpha services if internal fails
+          const [q, r, s50, s200, m] = await Promise.allSettled([
+            fetchGlobalQuote(symbol),
+            fetchRSI(symbol),
+            fetchSMA(symbol, 50),
+            fetchSMA(symbol, 200),
+            fetchMACD(symbol),
+          ]);
+          quoteData = q.status === "fulfilled" ? q.value : null;
+          indicatorsData = {
+            rsi: r.status === "fulfilled" ? r.value : 0,
+            sma50: s50.status === "fulfilled" ? s50.value.sma : 0,
+            sma200: s200.status === "fulfilled" ? s200.value.sma : 0,
+            macd: m.status === "fulfilled" ? m.value.macd : 0,
+            macdSignal: m.status === "fulfilled" ? m.value.signal : 0,
+            macdHistogram: m.status === "fulfilled" ? m.value.hist : 0,
+          };
+        }
 
-        const quoteData = quote.status === "fulfilled" ? quote.value : null;
-        const rsiData = rsi.status === "fulfilled" ? rsi.value : 0;
-        const sma50Data = sma50.status === "fulfilled" ? sma50.value.sma : 0;
-        const sma200Data = sma200.status === "fulfilled" ? sma200.value.sma : 0;
-        const macdData = macd.status === "fulfilled" ? macd.value : { macd: 0, signal: 0, hist: 0 };
+        const rsiData = Number(indicatorsData?.rsi ?? 0);
+        const sma50Data = Number(indicatorsData?.sma50 ?? 0);
+        const sma200Data = Number(indicatorsData?.sma200 ?? 0);
+        const macdData = {
+          macd: Number(indicatorsData?.macd ?? 0),
+          signal: Number(indicatorsData?.macdSignal ?? 0),
+          hist: Number(indicatorsData?.macdHistogram ?? 0),
+        };
 
         if (!quoteData || quoteData.price === 0) {
           return null;
@@ -149,10 +182,15 @@ export async function fetchStockTimeSeries(symbol: string): Promise<TimeSeriesDa
   const cacheKey = `stock_timeseries_${symbol}`;
 
   try {
-    return await apiCache.withCache(
+    return await apiCache.withFallback(
       cacheKey,
       async () => {
-        return await fetchTimeSeriesDaily(symbol);
+        try {
+          const data = await fetchInternalStocks("timeseries", symbol);
+          return data as TimeSeriesData[];
+        } catch {
+          return await fetchTimeSeriesDaily(symbol);
+        }
       },
       15 * 60 * 1000
     ); // Cache for 15 minutes
@@ -166,24 +204,35 @@ export async function fetchTechnicalIndicators(symbol: string): Promise<Technica
   const cacheKey = `technical_indicators_${symbol}`;
 
   try {
-    return await apiCache.withCache(
+    return await apiCache.withFallback(
       cacheKey,
       async () => {
-        const [rsi, sma50, sma200, macd] = await Promise.allSettled([
-          fetchRSI(symbol),
-          fetchSMA(symbol, 50),
-          fetchSMA(symbol, 200),
-          fetchMACD(symbol),
-        ]);
-
-        return {
-          rsi: rsi.status === "fulfilled" ? rsi.value : 0,
-          sma50: sma50.status === "fulfilled" ? sma50.value.sma : 0,
-          sma200: sma200.status === "fulfilled" ? sma200.value.sma : 0,
-          macd: macd.status === "fulfilled" ? macd.value.macd : 0,
-          macdSignal: macd.status === "fulfilled" ? macd.value.signal : 0,
-          macdHistogram: macd.status === "fulfilled" ? macd.value.hist : 0,
-        };
+        try {
+          const data = await fetchInternalStocks("indicators", symbol);
+          return {
+            rsi: Number(data?.rsi ?? 0),
+            sma50: Number(data?.sma50 ?? 0),
+            sma200: Number(data?.sma200 ?? 0),
+            macd: Number(data?.macd ?? 0),
+            macdSignal: Number(data?.macdSignal ?? 0),
+            macdHistogram: Number(data?.macdHistogram ?? 0),
+          } as TechnicalIndicators;
+        } catch {
+          const [rsi, sma50, sma200, macd] = await Promise.allSettled([
+            fetchRSI(symbol),
+            fetchSMA(symbol, 50),
+            fetchSMA(symbol, 200),
+            fetchMACD(symbol),
+          ]);
+          return {
+            rsi: rsi.status === "fulfilled" ? rsi.value : 0,
+            sma50: sma50.status === "fulfilled" ? sma50.value.sma : 0,
+            sma200: sma200.status === "fulfilled" ? sma200.value.sma : 0,
+            macd: macd.status === "fulfilled" ? macd.value.macd : 0,
+            macdSignal: macd.status === "fulfilled" ? macd.value.signal : 0,
+            macdHistogram: macd.status === "fulfilled" ? macd.value.hist : 0,
+          } as TechnicalIndicators;
+        }
       },
       5 * 60 * 1000
     );

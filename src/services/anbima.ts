@@ -4,13 +4,22 @@ import { apiCache } from "@/lib/cache";
 export async function anbima(endpoint: string, params: Record<string, string> = {}) {
   const cacheKey = `anbima_${endpoint}_${JSON.stringify(params)}`;
 
-  return apiCache.withCache(
+  return apiCache.withFallback(
     cacheKey,
     async () => {
-      const sp = new URLSearchParams({ endpoint, ...params });
-      const res = await fetch(`/api/proxy/anbima?${sp.toString()}`);
+      const sp = new URLSearchParams(params);
+      // preferir API interna, cair no proxy caso falhe
+      const internalUrl = `/api/data${endpoint}?${sp.toString()}`;
+      let res = await fetch(internalUrl);
+      if (!res.ok) {
+        const proxyUrl = `/api/proxy/anbima?endpoint=${encodeURIComponent(
+          endpoint
+        )}&${sp.toString()}`;
+        res = await fetch(proxyUrl);
+      }
       if (!res.ok) throw new Error("ANBIMA fetch failed");
-      return (await res.json()).data;
+      const json = await res.json();
+      return (json.data ?? json) as any;
     },
     10 * 60 * 1000
   ); // Cache por 10 minutos
@@ -20,7 +29,7 @@ export async function anbima(endpoint: string, params: Record<string, string> = 
 export async function fetchDebentures(params: Record<string, string> = {}) {
   const cacheKey = `anbima_debentures_${JSON.stringify(params)}`;
 
-  return apiCache.withCache(
+  return apiCache.withFallback(
     cacheKey,
     async () => {
       const data = await anbima("/debentures", params);
@@ -55,7 +64,7 @@ export async function fetchDebenaturesByRating(rating: "AAA" | "AA" | "A" | "BBB
 export async function fetchDiCurve() {
   const cacheKey = `anbima_di_curve`;
 
-  return apiCache.withCache(
+  return apiCache.withFallback(
     cacheKey,
     async () => {
       const data = await anbima("/di-curve");

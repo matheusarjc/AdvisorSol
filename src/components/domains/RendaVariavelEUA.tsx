@@ -248,6 +248,21 @@ export function RendaVariavelEUA() {
   const [timeSeriesData, setTimeSeriesData] = useState<TimeSeriesData[]>([]);
   const [symbolNews, setSymbolNews] = useState<NewsItem[]>([]);
   const [tracked, setTracked] = useState("AAPL");
+  const [health, setHealth] = useState<"ok" | "degraded" | "fail" | null>(null);
+  const [tsQuote, setTsQuote] = useState<number | null>(null);
+  const [tsSeries, setTsSeries] = useState<number | null>(null);
+  const [tsIndicators, setTsIndicators] = useState<number | null>(null);
+
+  const timeAgo = (ts?: number | null) => {
+    if (!ts) return "--";
+    const diff = Math.max(0, Date.now() - ts);
+    const s = Math.floor(diff / 1000);
+    if (s < 60) return `${s}s`;
+    const m = Math.floor(s / 60);
+    if (m < 60) return `${m}m`;
+    const h = Math.floor(m / 60);
+    return `${h}h`;
+  };
 
   // Load popular stocks on component mount
   useEffect(() => {
@@ -256,6 +271,7 @@ export function RendaVariavelEUA() {
       try {
         const stocksData = await fetchPopularStocks();
         setStocks(stocksData);
+        setTsQuote(Date.now());
       } catch (error) {
         console.error("Error loading stocks:", error);
       } finally {
@@ -291,6 +307,9 @@ export function RendaVariavelEUA() {
       setMacd(m);
       setTimeSeriesData(ts);
       setSymbolNews(news);
+      setTsQuote(Date.now());
+      setTsSeries(Date.now());
+      setTsIndicators(Date.now());
     } catch (error) {
       console.error("Error loading technical data:", error);
     }
@@ -299,6 +318,23 @@ export function RendaVariavelEUA() {
   useEffect(() => {
     loadTechnicals(tracked).catch(() => {});
   }, [tracked]);
+
+  // Health polling
+  useEffect(() => {
+    let timer: any;
+    const fetchHealth = async () => {
+      try {
+        const res = await fetch("/api/data/health", { cache: "no-store" });
+        if (res.ok) {
+          const j = await res.json();
+          setHealth(j?.sources?.stocks ? (j.overall as any) : null);
+        }
+      } catch {}
+    };
+    fetchHealth();
+    timer = setInterval(fetchHealth, 60000);
+    return () => clearInterval(timer);
+  }, []);
 
   // Remove the old priceData generation since we're using real data now
 
@@ -803,9 +839,7 @@ export function RendaVariavelEUA() {
                               ? "default"
                               : sector.momentum === "Moderate"
                               ? "secondary"
-                              : sector.momentum === "Weak"
-                              ? "destructive"
-                              : "outline"
+                              : "destructive"
                           }>
                           {sector.momentum}
                         </Badge>

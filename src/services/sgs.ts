@@ -11,7 +11,7 @@ export async function fetchSGSSeries(
 ) {
   const cacheKey = `sgs_${serie}_${dataInicial}_${dataFinal}`;
 
-  return apiCache.withCache(
+  return apiCache.withFallback(
     cacheKey,
     async () => {
       if (useMocks()) {
@@ -30,10 +30,11 @@ export async function fetchSGSSeries(
       params.set("serie", String(serie));
       if (dataInicial) params.set("dataInicial", dataInicial);
       if (dataFinal) params.set("dataFinal", dataFinal);
-      const res = await fetch(`/api/proxy/sgs?${params.toString()}`);
+      let res = await fetch(`/api/data/sgs-series?${params.toString()}`);
+      if (!res.ok) res = await fetch(`/api/proxy/sgs?${params.toString()}`);
       if (!res.ok) throw new Error("SGS fetch failed");
       const json = await res.json();
-      return json.data as Array<{ data: string; valor: string }>;
+      return (json.data ?? json) as Array<{ data: string; valor: string }>;
     },
     3 * 60 * 1000
   ); // Cache por 3 minutos
@@ -42,7 +43,7 @@ export async function fetchSGSSeries(
 export async function fetchLatestSGSValue(serie: number | string): Promise<number | null> {
   const cacheKey = `sgs_latest_${serie}`;
 
-  return apiCache.withCache(
+  return apiCache.withFallback(
     cacheKey,
     async () => {
       const series = await fetchSGSSeries(serie);

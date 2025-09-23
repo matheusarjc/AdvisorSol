@@ -11,13 +11,14 @@ export interface TesouroTitulo {
 }
 
 export async function fetchTesouroTitulos(): Promise<TesouroTitulo[]> {
-  return apiCache.withCache(
+  return apiCache.withFallback(
     "tesouro_titulos",
     async () => {
-      const res = await fetch("/api/proxy/tesouro");
+      let res = await fetch("/api/data/tesouro");
+      if (!res.ok) res = await fetch("/api/proxy/tesouro");
       if (!res.ok) throw new Error("Tesouro fetch failed");
       const json = await res.json();
-      return json.data as TesouroTitulo[];
+      return (json.data ?? json) as TesouroTitulo[];
     },
     5 * 60 * 1000
   );
